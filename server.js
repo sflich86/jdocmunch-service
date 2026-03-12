@@ -69,7 +69,7 @@ async function performSearch(q) {
     return { chunks, breakdown: { search_ms, retrieval_ms } };
 }
 
-// Endpoint: Raw chunks (sin Gemini)
+// Endpoint: Raw chunks (sin Gemini) — returns both 'results' and 'chunks' for compatibility
 app.get('/search', async (req, res) => {
     const q = req.query.q;
     if (!q) return res.status(400).json({ error: "Falta q" });
@@ -77,7 +77,7 @@ app.get('/search', async (req, res) => {
 
     try {
         const { chunks, breakdown } = await performSearch(q);
-        res.json({ results: chunks, breakdown, total_chunks: chunks.length });
+        res.json({ results: chunks, chunks: chunks, breakdown, total_chunks: chunks.length });
     } catch (err) { 
         console.error("❌ ERROR search:", err.message);
         res.status(500).json({ error: err.message }); 
