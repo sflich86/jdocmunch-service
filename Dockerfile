@@ -6,8 +6,13 @@ FROM python:3.11-slim
         && apt-get install -y nodejs build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev \
         && rm -rf /var/lib/apt/lists/*
 
+<<<<<<< Updated upstream
     # Instalar 'uv' y pre-instalar el motor v1.3.0 con soporte de Gemini
     RUN pip install uv && uv tool install jdocmunch-mcp[gemini]==1.3.0
+=======
+# Instalar 'uv' y pre-instalar el motor v1.3.0 con soporte de Gemini
+RUN pip install uv && uv tool install jdocmunch-mcp==1.3.0[gemini]
+>>>>>>> Stashed changes
 
     WORKDIR /app
 

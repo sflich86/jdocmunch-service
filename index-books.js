@@ -22,6 +22,10 @@ async function main() {
 
     const REPO_NAME = "local/books";
 
+<<<<<<< Updated upstream
+=======
+    // 1. Forzar borrado del índice previo para asegurar que se creen los vectores
+>>>>>>> Stashed changes
     try {
         console.log(`🗑️ Intentando borrar índice previo: ${REPO_NAME}...`);
         await client.callTool({
@@ -30,9 +34,16 @@ async function main() {
         });
         console.log("✅ Índice previo borrado.");
     } catch (e) {
+<<<<<<< Updated upstream
         console.log("ℹ️ No se pudo borrar el índice:", e.message);
     }
 
+=======
+        console.log("ℹ️ No se pudo borrar el índice (puede que no exista):", e.message);
+    }
+
+    // 2. Call index_local to index the books directory with embeddings
+>>>>>>> Stashed changes
     const result = await client.callTool({
         name: "index_local",
         arguments: { 
