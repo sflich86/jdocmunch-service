@@ -11,11 +11,14 @@ const REPO = "local/books";
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Gemini Setup
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-const transport = new StdioClientTransport({ command: "uvx", args: ["jdocmunch-mcp"] });
+const transport = new StdioClientTransport({ 
+    command: "uvx", 
+    args: ["--with", "jdocmunch-mcp==1.3.0[gemini]", "jdocmunch-mcp==1.3.0"],
+    env: process.env
+});
 const client = new Client({ name: "jdocmunch-bridge", version: "1.0.3" }, { capabilities: {} });
 
 let isConnected = false;
@@ -32,8 +35,6 @@ async function connectClient() {
 
 async function performSearch(q) {
     await connectClient();
-    
-    // 1. Search sections
     const searchStart = Date.now();
     const result = await client.callTool({ 
         name: "search_sections", 
@@ -42,7 +43,6 @@ async function performSearch(q) {
     const data = JSON.parse(result.content[0].text);
     const search_ms = Date.now() - searchStart;
 
-    // 2. Get full content for each result
     const retrievalStart = Date.now();
     let chunks = [];
     if (data.results) {
@@ -60,7 +60,6 @@ async function performSearch(q) {
         }
     }
     const retrieval_ms = Date.now() - retrievalStart;
-
     return { chunks, breakdown: { search_ms, retrieval_ms } };
 }
 
@@ -70,37 +69,23 @@ app.get('/search', async (req, res) => {
     try {
         const { chunks, breakdown } = await performSearch(q);
         res.json({ results: chunks, breakdown });
-    } catch (err) { 
-        res.status(500).json({ error: err.message }); 
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/ask', async (req, res) => {
     const q = req.query.q;
     if (!q) return res.status(400).json({ error: "Falta q" });
     if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: "GEMINI_API_KEY no configurada" });
-
     try {
         const { chunks, breakdown } = await performSearch(q);
-        
         const synthesisStart = Date.now();
         const contextText = chunks.map(c => `[${c.title}]: ${c.content}`).join("\n\n");
-        const prompt = `Eres un experto en el libro "Estimula tu nervio vago". 
-                        Responde la siguiente pregunta basándote SOLO en el contexto proporcionado.
-                        Contexto:\n${contextText}\n\nPregunta: ${q}`;
-        
+        const prompt = `Eres un experto en el libro "Estimula tu nervio vago". Responde la siguiente pregunta basándote SOLO en el contexto proporcionado. Contexto:\n${contextText}\n\nPregunta: ${q}`;
         const result = await model.generateContent(prompt);
         const responseText = result.response.text();
         const synthesis_ms = Date.now() - synthesisStart;
-
-        res.json({ 
-            answer: responseText, 
-            context_used: chunks.length + " tramos",
-            breakdown: { ...breakdown, synthesis_ms }
-        });
-    } catch (err) { 
-        res.status(500).json({ error: err.message }); 
-    }
+        res.json({ answer: responseText, context_used: chunks.length + " tramos", breakdown: { ...breakdown, synthesis_ms } });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Microservicio v1.0.3 listo`));

@@ -13,7 +13,8 @@ async function main() {
     
     const transport = new StdioClientTransport({
         command: "uvx",
-        args: ["--with", "jdocmunch-mcp[gemini]", "jdocmunch-mcp"],
+        args: ["--with", "jdocmunch-mcp==1.3.0[gemini]", "jdocmunch-mcp==1.3.0"],
+        env: process.env
     });
 
     const client = new Client(
