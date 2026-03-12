@@ -2,7 +2,7 @@ const express = require('express');
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 const path = require('path');
-const { GoogleGenAI } = require("@google/genai");
+const { GoogleGenAI } = require("@google/generative-ai");
 require('dotenv').config();
 
 const app = express();
@@ -19,10 +19,10 @@ const ai = new GoogleGenAI({
 
 const transport = new StdioClientTransport({ 
     command: "uvx", 
-    args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
+    args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
     env: process.env 
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.13" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.14" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -64,7 +64,7 @@ async function performSearch(q) {
 app.get('/ask', async (req, res) => {
     const q = req.query.q;
     const currentKey = getApiKey();
-    console.log(`[v1.0.13] 🔍 Pregunta: "${q}" | Key: ${currentKey ? "Presente" : "VACÍA"}`);
+    console.log(`[v1.0.14] 🔍 Pregunta: "${q}" | Key: ${currentKey ? "Presente" : "VACÍA"}`);
 
     if (!currentKey) return res.status(500).json({ error: "Falta API Key" });
 
@@ -76,7 +76,6 @@ app.get('/ask', async (req, res) => {
 
         const prompt = `Eres un experto literario. Responde basándote SOLO en el contexto:\n\n${contextText}\n\nPregunta: ${q}`;
         
-        // Nueva sintaxis 3.1 Lite
         const responseData = await ai.models.generateContent({
             model: 'gemini-3.1-flash-lite-preview',
             contents: [{
@@ -87,11 +86,11 @@ app.get('/ask', async (req, res) => {
 
         res.json({ answer: responseData.text, context_used: chunks.length });
     } catch (err) { 
-        console.error("❌ ERROR v1.0.13:", err.message);
+        console.error("❌ ERROR v1.0.14:", err.message);
         res.status(500).json({ error: "Error AI", details: err.message }); 
     }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.13 listo (3.1 Lite)`);
+    console.log(`🚀 Microservicio v1.0.14 listo (3.1 Lite + MCP 1.3.0)`);
 });

@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-/**
- * index-books.js - Indexes local .md files via jdocmunch-mcp (JSON-RPC over stdio)
- * Usage: node index-books.js /app/books
- */
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 
@@ -13,8 +9,7 @@ async function main() {
     
     const transport = new StdioClientTransport({
         command: "uvx",
-        args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
-        env: process.env
+        args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
     });
 
     const client = new Client(
@@ -27,7 +22,6 @@ async function main() {
 
     const REPO_NAME = "local/books";
 
-    // 1. Forzar borrado del índice previo para asegurar que se creen los vectores
     try {
         console.log(`🗑️ Intentando borrar índice previo: ${REPO_NAME}...`);
         await client.callTool({
@@ -36,10 +30,9 @@ async function main() {
         });
         console.log("✅ Índice previo borrado.");
     } catch (e) {
-        console.log("ℹ️ No se pudo borrar el índice (puede que no exista):", e.message);
+        console.log("ℹ️ No se pudo borrar el índice:", e.message);
     }
 
-    // 2. Call index_local to index the books directory with embeddings
     const result = await client.callTool({
         name: "index_local",
         arguments: { 
@@ -53,7 +46,6 @@ async function main() {
     console.log("📖 Index result:");
     console.log(JSON.stringify(result, null, 2));
 
-    // Verify by listing repos
     const repos = await client.callTool({
         name: "list_repos",
         arguments: {}
