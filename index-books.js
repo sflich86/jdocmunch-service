@@ -44,6 +44,7 @@ async function main() {
         name: "index_local",
         arguments: { 
             path: bookPath,
+            repo: REPO_NAME,
             use_ai_summaries: false,
             use_embeddings: true
         }
