@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  jdocmunch:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    # Si vas a subir la imagen a un registro (ej. Docker Hub) primero, cambialo aquí.
+    # image: tu-usuario/jdocmunch-service:latest 
+    container_name: jdocmunch_search
+    volumes:
+      # Volumen mapeado para persistir la Base de Datos con el Índice de jdocmunch
+      - jdocmunch_data:/root/.local/share/jdocmunch
+      # Si quieres subir los libros locales a través del servidor hacia el contenedor:
+      # - /ruta/en/tu/vps/libros:/app/books 
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      # - GOOGLE_API_KEY=tu_api_key_aqui_para_generar_summaries_ai_opcional
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          # Limitamos recursos para no asfixiar el VPS en búsquedas concurrentes
+          cpus: '0.5' 
+          memory: 1G
+      labels:
+        # Configuración Extraída de Traefik (ajusta el Host con tu dominio)
+        - traefik.enable=true
+        - traefik.http.routers.jdocmunch.rule=Host(`ssjdocmunchss.odontolab.co`)
+        - traefik.http.routers.jdocmunch.service=jdocmunch
+        - traefik.http.routers.jdocmunch.entrypoints=websecure
+        - traefik.http.routers.jdocmunch.tls.certresolver=le
+        - traefik.http.routers.jdocmunch.tls=true
+        - traefik.http.services.jdocmunch.loadbalancer.server.port=3000
+    networks:
+      - traefik_public
+      - general_network
+
+networks:
+  traefik_public:
+    external: true
+  general_network:
+    external: true
+
+volumes:
+  jdocmunch_data: {}
