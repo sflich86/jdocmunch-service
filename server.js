@@ -3,6 +3,7 @@ const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 const path = require('path');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
@@ -10,6 +11,14 @@ const PORT = process.env.PORT || 3000;
 const REPO = "local/books";
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Diagnostico inicial de archivos
+console.log(`[v1.0.10] 📁 Directorio actual: ${process.cwd()}`);
+if (fs.existsSync('.env')) {
+    console.log(`[v1.0.10] ✅ Archivo .env detectado`);
+} else {
+    console.error(`[v1.0.10] ❌ Error: Archivo .env NO encontrado`);
+}
 
 // Gemini Setup
 const getApiKey = () => process.env.GEMINI_API_KEY || "";
@@ -21,7 +30,7 @@ const transport = new StdioClientTransport({
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
     env: process.env 
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.9" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.10" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -66,10 +75,14 @@ app.get('/ask', async (req, res) => {
     const currentKey = getApiKey();
     const keyDiag = currentKey ? `${currentKey.substring(0,4)}...` : "VACÍA";
     
-    console.log(`[v1.0.9] 🔍 Pregunta: "${q}" | Key: ${keyDiag}`);
+    console.log(`[v1.0.10] 🔍 Pregunta: "${q}" | Key loaded: ${keyDiag}`);
 
     if (!currentKey) {
-        return res.status(500).json({ error: "API Key no detectada en environment", diagnostic: "Verificar archivo .env y volumen docker" });
+        return res.status(500).json({ 
+            error: "API Key VACÍA", 
+            diagnostic: "El servidor no cargó la llave del archivo .env",
+            fix: "Revisar el mount del volumen en docker-compose" 
+        });
     }
 
     try {
@@ -78,23 +91,19 @@ app.get('/ask', async (req, res) => {
             ? chunks.map(c => `[${c.title}]: ${c.content}`).join("\n\n")
             : "No hay contexto disponible.";
 
-        const prompt = `Eres un experto en el libro "Estimula tu nervio vago". Responde la siguiente pregunta basándote SOLO en el contexto proporcionado.\nContexto:\n${contextText}\n\nPregunta: ${q}`;
+        const prompt = `Eres un experto en el libro "Estimula tu nervio vago". Responde basándote SOLO en el contexto.\nContexto:\n${contextText}\n\nPregunta: ${q}`;
         
         const result = await model.generateContent(prompt);
         const responseText = result.response.text();
 
         res.json({ answer: responseText, context_used: chunks.length });
     } catch (err) { 
-        console.error("❌ ERROR CRÍTICO v1.0.9:", err);
-        res.status(500).json({ 
-            error: "Fallo en síntesis AI", 
-            details: err.message,
-            key_diagnostic: keyDiag
-        }); 
+        console.error("❌ ERROR v1.0.10:", err.message);
+        res.status(500).json({ error: "Fallo AI", details: err.message }); 
     }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.9 listo`);
-    console.log(`Diagnostic: Key loaded -> ${getApiKey().substring(0,4)}...`);
+    console.log(`🚀 Microservicio v1.0.10 listo`);
+    console.log(`Diagnostic: Starting Key -> ${getApiKey().substring(0,4)}...`);
 });
