@@ -12,15 +12,16 @@ const REPO = "local/books";
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Gemini Setup
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const API_KEY = process.env.GEMINI_API_KEY || "";
+const genAI = new GoogleGenerativeAI(API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 const transport = new StdioClientTransport({ 
     command: "uvx", 
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
-    env: process.env // Asegura que las API Keys se pasen al motor de Python
+    env: process.env 
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.6" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.7" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -36,8 +37,6 @@ async function connectClient() {
 
 async function performSearch(q) {
     await connectClient();
-    
-    // 1. Search sections
     const searchStart = Date.now();
     const result = await client.callTool({ 
         name: "search_sections", 
@@ -46,7 +45,6 @@ async function performSearch(q) {
     const data = JSON.parse(result.content[0].text);
     const search_ms = Date.now() - searchStart;
 
-    // 2. Get full content for each result
     const retrievalStart = Date.now();
     let chunks = [];
     if (data.results) {
@@ -64,7 +62,6 @@ async function performSearch(q) {
         }
     }
     const retrieval_ms = Date.now() - retrievalStart;
-
     return { chunks, breakdown: { search_ms, retrieval_ms } };
 }
 
@@ -82,12 +79,14 @@ app.get('/search', async (req, res) => {
 app.get('/ask', async (req, res) => {
     const q = req.query.q;
     if (!q) return res.status(400).json({ error: "Falta q" });
-    if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: "GEMINI_API_KEY no configurada" });
+    
+    // Diagnóstico de Key (Seguro)
+    const keyInfo = API_KEY ? `${API_KEY.substring(0,4)}...${API_KEY.substring(API_KEY.length-4)}` : "MISSING";
+    console.log(`[v1.0.7] 🔑 Usando Key: ${keyInfo}`);
 
     try {
-        console.log(`🔍 Buscando contexto para: "${q}"`);
         const { chunks, breakdown } = await performSearch(q);
-        console.log(`📄 Contexto encontrado: ${chunks.length} tramos`);
+        console.log(`📄 Contexto: ${chunks.length} tramos`);
         
         const synthesisStart = Date.now();
         const contextText = chunks.length > 0 
@@ -95,7 +94,7 @@ app.get('/ask', async (req, res) => {
             : "No hay contexto disponible.";
 
         const prompt = `Eres un experto en el libro "Estimula tu nervio vago". 
-                        Responde la siguiente pregunta basándote SOLO en el contexto proporcionado.
+                        Responde basándote SOLO en el contexto proporcionado.
                         Contexto:\n${contextText}\n\nPregunta: ${q}`;
         
         const result = await model.generateContent(prompt);
@@ -108,12 +107,17 @@ app.get('/ask', async (req, res) => {
             breakdown: { ...breakdown, synthesis_ms }
         });
     } catch (err) { 
-        console.error("❌ ERROR CRÍTICO en /ask:", err);
+        console.error("❌ ERROR CRÍTICO v1.0.7:", err.message);
         res.status(500).json({ 
             error: "Error en síntesis AI", 
+            key_status: keyInfo === "MISSING" ? "Falta Key" : "Presente",
             details: err.message
         }); 
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Microservicio v1.0.6 listo`));
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Microservicio v1.0.7 listo`);
+    const k = process.env.GEMINI_API_KEY || "";
+    console.log(`Diagnostic: Key starts with ${k.substring(0,4)}`);
+});
