@@ -103,8 +103,11 @@ app.get('/ask', async (req, res) => {
             breakdown: { ...breakdown, synthesis_ms }
         });
     } catch (err) { 
-        console.error("❌ Error en /ask:", err);
-        res.status(500).json({ error: err.message }); 
+        console.error("❌ ERROR CRÍTICO en /ask:", err);
+        res.status(500).json({ 
+            error: "Error en síntesis AI", 
+            details: err.message
+        }); 
     }
 });
 

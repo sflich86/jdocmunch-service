@@ -25,7 +25,21 @@ async function main() {
     await client.connect(transport);
     console.log("✅ Connected to jdocmunch-mcp");
 
-    // Call index_local to index the books directory
+    const REPO_NAME = "local/books";
+
+    // 1. Forzar borrado del índice previo para asegurar que se creen los vectores
+    try {
+        console.log(`🗑️ Intentando borrar índice previo: ${REPO_NAME}...`);
+        await client.callTool({
+            name: "delete_index",
+            arguments: { repo: REPO_NAME }
+        });
+        console.log("✅ Índice previo borrado.");
+    } catch (e) {
+        console.log("ℹ️ No se pudo borrar el índice (puede que no exista):", e.message);
+    }
+
+    // 2. Call index_local to index the books directory with embeddings
     const result = await client.callTool({
         name: "index_local",
         arguments: { 
