@@ -20,7 +20,7 @@ const transport = new StdioClientTransport({
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
     env: process.env // Asegura que las API Keys se pasen al motor de Python
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.3" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.4" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -101,7 +101,7 @@ app.get('/ask', async (req, res) => {
 
         res.json({ 
             answer: responseText, 
-            context_used: chunks.length + " tramos",
+            context_used: chunks.length + " t",
             breakdown: { ...breakdown, synthesis_ms }
         });
     } catch (err) { 
@@ -113,4 +113,4 @@ app.get('/ask', async (req, res) => {
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Microservicio v1.0.3 listo`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Microservicio v1.0.4 listo`));
