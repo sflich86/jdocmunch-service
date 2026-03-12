@@ -21,7 +21,7 @@ const transport = new StdioClientTransport({
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
     env: process.env 
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.7" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.8" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -81,12 +81,13 @@ app.get('/ask', async (req, res) => {
     if (!q) return res.status(400).json({ error: "Falta q" });
     
     // Diagnóstico de Key (Seguro)
-    const keyInfo = API_KEY ? `${API_KEY.substring(0,4)}...${API_KEY.substring(API_KEY.length-4)}` : "MISSING";
-    console.log(`[v1.0.7] 🔑 Usando Key: ${keyInfo}`);
+    const keyParsed = process.env.GEMINI_API_KEY || "";
+    const keyInfo = keyParsed ? `${keyParsed.substring(0,4)}...${keyParsed.substring(keyParsed.length-4)}` : "MISSING";
+    console.log(`[v1.0.8] 🔍 Buscando para: "${q}" | Key: ${keyInfo}`);
 
     try {
         const { chunks, breakdown } = await performSearch(q);
-        console.log(`📄 Contexto: ${chunks.length} tramos`);
+        console.log(`📄 Contexto: ${chunks.length} tramos encontrados.`);
         
         const synthesisStart = Date.now();
         const contextText = chunks.length > 0 
@@ -107,17 +108,17 @@ app.get('/ask', async (req, res) => {
             breakdown: { ...breakdown, synthesis_ms }
         });
     } catch (err) { 
-        console.error("❌ ERROR CRÍTICO v1.0.7:", err.message);
+        console.error("❌ ERROR CRÍTICO v1.0.8:", err);
         res.status(500).json({ 
             error: "Error en síntesis AI", 
-            key_status: keyInfo === "MISSING" ? "Falta Key" : "Presente",
+            key_status: keyInfo,
             details: err.message
         }); 
     }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.7 listo`);
+    console.log(`🚀 Microservicio v1.0.8 listo`);
     const k = process.env.GEMINI_API_KEY || "";
-    console.log(`Diagnostic: Key starts with ${k.substring(0,4)}`);
+    console.log(`Diagnostic: Internal Key starts with ${k.substring(0,4)}`);
 });
