@@ -6,8 +6,8 @@ RUN apt-get update && apt-get install -y curl ca-certificates \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar 'uv' para manejar el entorno de Python aisaldo de jdocmunch
-RUN pip install uv
+# Instalar 'uv' y pre-instalar el motor con soporte de Gemini
+RUN pip install uv && uv tool install jdocmunch-mcp[gemini]
 
 WORKDIR /app
 

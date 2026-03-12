@@ -13,7 +13,7 @@ async function main() {
     
     const transport = new StdioClientTransport({
         command: "uvx",
-        args: ["jdocmunch-mcp"],
+        args: ["--with", "jdocmunch-mcp[gemini]", "jdocmunch-mcp"],
     });
 
     const client = new Client(
@@ -29,7 +29,8 @@ async function main() {
         name: "index_local",
         arguments: { 
             path: bookPath,
-            use_ai_summaries: false
+            use_ai_summaries: false,
+            use_embeddings: true
         }
     });
 
