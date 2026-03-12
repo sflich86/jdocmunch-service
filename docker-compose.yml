@@ -2,16 +2,17 @@ version: "3.8"
 
 services:
   jdocmunch:
-    image: ghcr.io/sflich86/jdocmunch-service:latest
+    image: jdocmunch-service:latest
     volumes:
       # Volumen mapeado para persistir la Base de Datos con el Índice de jdocmunch
       - jdocmunch_data:/root/.local/share/jdocmunch
-      # Si quieres subir los libros locales a través del servidor hacia el contenedor:
-      # - /ruta/en/tu/vps/libros:/app/books 
+      # Volumen mapeado para persistir los libros también
+      - jdocmunch_books:/app/books
     environment:
       - PORT=3000
       - NODE_ENV=production
-      # - GOOGLE_API_KEY=tu_api_key_aqui_para_generar_summaries_ai_opcional
+      - GEMINI_API_KEY=AIzaSyArwwh72NTgOYDsSqMx_6HFfMMPO9L_Wjc
+      - GOOGLE_API_KEY=AIzaSyArwwh72NTgOYDsSqMx_6HFfMMPO9L_Wjc
     deploy:
       mode: replicated
       replicas: 1
@@ -20,11 +21,9 @@ services:
           - node.role == manager
       resources:
         limits:
-          # Limitamos recursos para no asfixiar el VPS en búsquedas concurrentes
           cpus: '0.5' 
           memory: 1G
       labels:
-        # Configuración Extraída de Traefik (ajusta el Host con tu dominio)
         - traefik.enable=true
         - traefik.http.routers.jdocmunch.rule=Host(`ssjdocmunchss.odontolab.co`)
         - traefik.http.routers.jdocmunch.service=jdocmunch
@@ -44,3 +43,4 @@ networks:
 
 volumes:
   jdocmunch_data: {}
+  jdocmunch_books: {}
