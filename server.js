@@ -85,7 +85,9 @@ app.get('/ask', async (req, res) => {
     if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: "GEMINI_API_KEY no configurada" });
 
     try {
+        console.log(`🔍 Buscando contexto para: "${q}"`);
         const { chunks, breakdown } = await performSearch(q);
+        console.log(`📄 Contexto encontrado: ${chunks.length} tramos`);
         
         const synthesisStart = Date.now();
         const contextText = chunks.map(c => `[${c.title}]: ${c.content}`).join("\n\n");
