@@ -13,14 +13,15 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Gemini Setup
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
+// Usamos gemini-1.5-flash como fallback seguro si el preview falla
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 const transport = new StdioClientTransport({ 
     command: "uvx", 
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
     env: process.env // Asegura que las API Keys se pasen al motor de Python
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.4" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.5" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -90,7 +91,10 @@ app.get('/ask', async (req, res) => {
         console.log(`📄 Contexto encontrado: ${chunks.length} tramos`);
         
         const synthesisStart = Date.now();
-        const contextText = chunks.map(c => `[${c.title}]: ${c.content}`).join("\n\n");
+        const contextText = chunks.length > 0 
+            ? chunks.map(c => `[${c.title}]: ${c.content}`).join("\n\n")
+            : "No hay contexto disponible.";
+
         const prompt = `Eres un experto en el libro "Estimula tu nervio vago". 
                         Responde la siguiente pregunta basándote SOLO en el contexto proporcionado.
                         Contexto:\n${contextText}\n\nPregunta: ${q}`;
@@ -101,7 +105,7 @@ app.get('/ask', async (req, res) => {
 
         res.json({ 
             answer: responseText, 
-            context_used: chunks.length + " t",
+            context_used: chunks.length + " tramos",
             breakdown: { ...breakdown, synthesis_ms }
         });
     } catch (err) { 
@@ -113,4 +117,4 @@ app.get('/ask', async (req, res) => {
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Microservicio v1.0.4 listo`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Microservicio v1.0.5 listo`));

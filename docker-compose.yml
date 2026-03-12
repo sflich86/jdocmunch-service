@@ -3,14 +3,14 @@ version: "3.8"
 services:
   jdocmunch:
     image: jdocmunch-service:latest
+    build: .
     volumes:
       - jdocmunch_data:/root/.local/share/jdocmunch
-      - jdocmunch_books:/app/books
     environment:
       - PORT=3000
       - NODE_ENV=production
-      - GEMINI_API_KEY=AIzaSyArwwh72NTgOYDsSqMx_6HFfMMPO9L_Wjc
-      - GOOGLE_API_KEY=AIzaSyArwwh72NTgOYDsSqMx_6HFfMMPO9L_Wjc
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - JDOCMUNCH_EMBEDDING_PROVIDER=gemini
     deploy:
       mode: replicated
@@ -42,4 +42,3 @@ networks:
 
 volumes:
   jdocmunch_data: {}
-  jdocmunch_books: {}
