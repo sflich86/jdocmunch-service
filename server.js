@@ -3,7 +3,6 @@ const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 const path = require('path');
 const { GoogleGenAI } = require("@google/genai");
-const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
@@ -12,10 +11,10 @@ const REPO = "local/books";
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Gemini 3.1 Setup (Using @google/genai as requested)
+// Gemini 3.1 Lite Setup
 const getApiKey = () => process.env.GEMINI_API_KEY || "";
 const ai = new GoogleGenAI({
-    apiKey: getApiKey(),
+    apiKey: getApiKey()
 });
 
 const transport = new StdioClientTransport({ 
@@ -23,7 +22,7 @@ const transport = new StdioClientTransport({
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
     env: process.env 
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.12" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.13" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -65,24 +64,20 @@ async function performSearch(q) {
 app.get('/ask', async (req, res) => {
     const q = req.query.q;
     const currentKey = getApiKey();
-    const keyDiag = currentKey ? `${currentKey.substring(0,4)}...` : "VACÍA";
-    
-    console.log(`[v1.0.12] 🔍 Pregunta: "${q}" | Key: ${keyDiag}`);
+    console.log(`[v1.0.13] 🔍 Pregunta: "${q}" | Key: ${currentKey ? "Presente" : "VACÍA"}`);
 
-    if (!currentKey) {
-        return res.status(500).json({ error: "API Key no detectada" });
-    }
+    if (!currentKey) return res.status(500).json({ error: "Falta API Key" });
 
     try {
         const { chunks } = await performSearch(q);
         const contextText = chunks.length > 0 
             ? chunks.map(c => `[${c.title}]: ${c.content}`).join("\n\n")
-            : "No hay contexto disponible.";
+            : "Contexto no encontrado.";
 
         const prompt = `Eres un experto literario. Responde basándote SOLO en el contexto:\n\n${contextText}\n\nPregunta: ${q}`;
         
-        // Using gemini-3.1-flash-lite-preview with the new SDK syntax
-        const response = await ai.models.generateContent({
+        // Nueva sintaxis 3.1 Lite
+        const responseData = await ai.models.generateContent({
             model: 'gemini-3.1-flash-lite-preview',
             contents: [{
                 role: 'user',
@@ -90,20 +85,13 @@ app.get('/ask', async (req, res) => {
             }]
         });
 
-        const responseText = response.text;
-
-        res.json({ answer: responseText, context_used: chunks.length });
+        res.json({ answer: responseData.text, context_used: chunks.length });
     } catch (err) { 
-        console.error("❌ ERROR CRÍTICO v1.0.12:", err);
-        res.status(500).json({ 
-            error: "Fallo en síntesis AI", 
-            details: err.message,
-            key_diagnostic: keyDiag
-        }); 
+        console.error("❌ ERROR v1.0.13:", err.message);
+        res.status(500).json({ error: "Error AI", details: err.message }); 
     }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.12 listo (Gemini 3.1 Lite)`);
-    console.log(`Diagnostic: Key loaded -> ${getApiKey().substring(0,4)}...`);
+    console.log(`🚀 Microservicio v1.0.13 listo (3.1 Lite)`);
 });
