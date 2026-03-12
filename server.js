@@ -17,7 +17,7 @@ const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 const transport = new StdioClientTransport({ 
     command: "uvx", 
-    args: ["--with", "jdocmunch-mcp==1.3.0[gemini]", "jdocmunch-mcp==1.3.0"],
+    args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
     env: process.env // Asegura que las API Keys se pasen al motor de Python
 });
 const client = new Client({ name: "jdocmunch-bridge", version: "1.0.3" }, { capabilities: {} });
