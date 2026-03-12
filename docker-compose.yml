@@ -6,6 +6,7 @@ services:
     build: .
     volumes:
       - jdocmunch_data:/root/.local/share/jdocmunch
+      - ./.env:/app/.env
     environment:
       - PORT=3000
       - NODE_ENV=production
