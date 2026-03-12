@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-/**
- * index-books.js - Indexes local .md files via jdocmunch-mcp (JSON-RPC over stdio)
- * Usage: node index-books.js /app/books
- */
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 
@@ -13,7 +9,7 @@ async function main() {
     
     const transport = new StdioClientTransport({
         command: "uvx",
-        args: ["jdocmunch-mcp"],
+        args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
     });
 
     const client = new Client(
@@ -24,19 +20,32 @@ async function main() {
     await client.connect(transport);
     console.log("✅ Connected to jdocmunch-mcp");
 
-    // Call index_local to index the books directory
+    const REPO_NAME = "local/books";
+
+    try {
+        console.log(`🗑️ Intentando borrar índice previo: ${REPO_NAME}...`);
+        await client.callTool({
+            name: "delete_index",
+            arguments: { repo: REPO_NAME }
+        });
+        console.log("✅ Índice previo borrado.");
+    } catch (e) {
+        console.log("ℹ️ No se pudo borrar el índice:", e.message);
+    }
+
     const result = await client.callTool({
         name: "index_local",
         arguments: { 
             path: bookPath,
-            use_ai_summaries: false
+            repo: REPO_NAME,
+            use_ai_summaries: false,
+            use_embeddings: true
         }
     });
 
     console.log("📖 Index result:");
     console.log(JSON.stringify(result, null, 2));
 
-    // Verify by listing repos
     const repos = await client.callTool({
         name: "list_repos",
         arguments: {}

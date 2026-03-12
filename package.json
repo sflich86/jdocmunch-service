@@ -1,9 +1,10 @@
 {
   "name": "jdocmunch-service",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "1.0.15",
+  "description": "Microservicio de búsqueda y RAG para libros",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -20,6 +21,6 @@
     "mime": "^4.1.0"
   },
   "devDependencies": {
-    "@types/node": "^25.4.0"
+    "@types/node": "^24.4.0"
   }
 }

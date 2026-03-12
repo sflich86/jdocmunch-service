@@ -1,33 +1,26 @@
-FROM python:3.12-slim
+FROM python:3.11-slim
 
-# Instalar dependencias del sistema y Node.js 20
-RUN apt-get update && apt-get install -y curl ca-certificates \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    # Instalar Node.js y dependencias de sistema necesarias para PDF/Canvas
+    RUN apt-get update && apt-get install -y curl ca-certificates \
+        && curl -fsSL https://deb.nodesource.com/setup_20.x | bash \
+        && apt-get install -y nodejs build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev \
+        && rm -rf /var/lib/apt/lists/*
 
-# Instalar 'uv' para manejar el entorno de Python aisaldo de jdocmunch
-RUN pip install uv
+    # Instalar 'uv' y pre-instalar el motor v1.3.0 con soporte de Gemini
+    RUN pip install uv && uv tool install jdocmunch-mcp[gemini]==1.3.0
 
-WORKDIR /app
+    WORKDIR /app
 
-# Copiar configuración de Node.js e instalar
-COPY package*.json ./
-RUN npm install
+    # Copiar archivos de dependencias de Node
+    COPY package*.json ./
+    RUN npm install
 
-# Crear carpeta local donde jdocmunch guarda los índices de SQLite y archivos cacheados
-RUN mkdir -p /root/.local/share/jdocmunch
-RUN mkdir -p /app/books
+    # Crear directorios para persistencia
+    RUN mkdir -p /root/.local/share/jdocmunch
+    RUN mkdir -p /app/books
 
-# Copiar el código del servicio
-COPY . .
+    # Copiar el resto del código
+    COPY . .
 
-# Exponer el puerto del microservicio
-EXPOSE 3000
-
-# Añadir variables de entorno predefinidas (pueden sobreescribirse vía docker-compose)
-ENV PORT=3000
-ENV NODE_ENV=production
-
-# Arrancar el servicio
-CMD ["node", "server.js"]
+    EXPOSE 3000
+    CMD ["node", "server.js"]
