@@ -1,25 +1,17 @@
 {
   "name": "jdocmunch-service",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "1.0.3",
+  "description": "Microservicio jDocMunch con soporte RAG",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@google/genai": "^1.44.0",
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "axios": "^1.13.6",
-    "body-parser": "^2.2.2",
-    "dotenv": "^17.3.1",
-    "express": "^5.2.1",
-    "mime": "^4.1.0"
-  },
-  "devDependencies": {
-    "@types/node": "^25.4.0"
+    "@google/generative-ai": "^0.21.0",
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1"
   }
 }
