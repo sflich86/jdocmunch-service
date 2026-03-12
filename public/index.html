@@ -28,15 +28,9 @@
             padding: 2rem;
         }
 
-        .container {
-            width: 100%;
-            max-width: 800px;
-        }
+        .container { width: 100%; max-width: 800px; }
 
-        header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
+        header { text-align: center; margin-bottom: 2rem; }
 
         h1 {
             font-size: 2.5rem;
@@ -59,7 +53,6 @@
             background: rgba(0,0,0,0.2);
             border-radius: 12px;
             padding: 0.25rem;
-            margin-bottom: 1rem;
         }
 
         input {
@@ -86,28 +79,6 @@
         button:hover {
             background: var(--primary-hover);
             transform: translateY(-1px);
-        }
-
-        .mode-selector {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            margin-bottom: 1rem;
-        }
-
-        .mode-chip {
-            padding: 0.4rem 1rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            cursor: pointer;
-            border: 1px solid var(--primary);
-            color: var(--primary);
-            transition: all 0.2s;
-        }
-
-        .mode-chip.active {
-            background: var(--primary);
-            color: white;
         }
 
         .stats {
@@ -154,14 +125,6 @@
             animation: fadeIn 0.5s ease;
         }
 
-        .result-card {
-            background: var(--card-bg);
-            padding: 1.5rem;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.05);
-            animation: fadeIn 0.3s ease;
-        }
-
         .loading {
             text-align: center;
             margin: 2rem 0;
@@ -180,35 +143,22 @@
     <div class="container">
         <header>
             <h1>jDocMunch Explorer</h1>
-            <p style="color: var(--text-dim)">Exploración de "Estimula tu nervio vago" con Latencia E2E</p>
+            <p style="color: var(--text-dim)">Exploración de "Estimula tu nervio vago"</p>
         </header>
         <div class="search-container">
-            <div class="mode-selector">
-                <div class="mode-chip active" id="modeAsk" onclick="setMode('ask')">Respuesta AI (E2E)</div>
-                <div class="mode-chip" id="modeSearch" onclick="setMode('search')">Ver Chunks Raw</div>
-            </div>
-            
             <div class="search-box">
                 <input type="text" id="query" placeholder="Escribe tu pregunta..." onkeypress="if(event.key==='Enter') execute()">
                 <button onclick="execute()">Consultar</button>
             </div>
 
             <div class="stats" id="statsArea" style="display: none;">
-                <div class="breakdown-item">
-                    <span style="font-size: 0.7rem">BÚSQUEDA INDEX</span>
-                    <span id="statSearch" class="latency-badge">0ms</span>
-                </div>
-                <div class="breakdown-item" id="retrievalBox">
-                    <span style="font-size: 0.7rem">RECUPERACIÓN</span>
-                    <span id="statRetrieval" class="latency-badge">0ms</span>
-                </div>
-                <div class="breakdown-item" id="synthesisBox">
-                    <span style="font-size: 0.7rem">SÍNTESIS AI</span>
-                    <span id="statSynthesis" class="latency-badge">0ms</span>
-                </div>
                 <div class="breakdown-item" style="border: 1px solid var(--accent)">
-                    <span style="font-size: 0.7rem">TOTAL SESIÓN</span>
+                    <span style="font-size: 0.7rem">TIEMPO TOTAL</span>
                     <span id="statTotal" class="latency-badge" style="color: var(--success)">0ms</span>
+                </div>
+                <div class="breakdown-item">
+                    <span style="font-size: 0.7rem">CONTEXTO USADO</span>
+                    <span id="statContext" class="latency-badge">0 secciones</span>
                 </div>
             </div>
         </div>
@@ -216,20 +166,8 @@
         <div class="loading" id="loader">Consultando el motor jDocMunch...</div>
 
         <div id="results"></div>
+    </div>
     <script>
-        let currentMode = 'ask';
-
-        function setMode(mode) {
-            currentMode = mode;
-            document.querySelectorAll('.mode-chip').forEach(c => c.classList.remove('active'));
-            document.getElementById(`mode${mode.charAt(0).toUpperCase() + mode.slice(1)}`).classList.add('active');
-            
-            // Show/hide relevant stats boxes
-            document.getElementById('synthesisBox').style.display = mode === 'ask' ? 'flex' : 'none';
-            document.getElementById('results').innerHTML = '';
-            document.getElementById('statsArea').style.display = 'none';
-        }
-
         async function execute() {
             const query = document.getElementById('query').value;
             if (!query) return;
@@ -243,56 +181,35 @@
             statsArea.style.display = 'none';
 
             const startTime = Date.now();
-            const endpoint = currentMode === 'ask' ? '/ask' : '/search';
 
             try {
-                const response = await fetch(`${endpoint}?q=${encodeURIComponent(query)}`);
+                const response = await fetch(`/ask?q=${encodeURIComponent(query)}`);
                 const data = await response.json();
-                const totalNetTime = Date.now() - startTime;
+                const totalTime = Date.now() - startTime;
 
                 loader.style.display = 'none';
                 statsArea.style.display = 'flex';
 
-                if (currentMode === 'search') {
-                    document.getElementById('statSearch').textContent = (data.breakdown.search_ms || 0) + 'ms';
-                    document.getElementById('statRetrieval').textContent = (data.breakdown.retrieval_ms || 0) + 'ms';
-                    document.getElementById('statTotal').textContent = totalNetTime + 'ms';
-                    
-                    if (data.results) {
-                        data.results.forEach((res, index) => {
-                            const card = document.createElement('div');
-                            card.className = 'result-card';
-                            card.innerHTML = `
-                                <div style="color:var(--primary); font-weight:bold; margin-bottom: 0.5rem">Chunk #${index + 1}: ${res.title}</div>
-                                <div style="font-size:0.9rem; color:var(--text-dim); margin-bottom: 1rem">${res.summary || ''}</div>
-                                <pre style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); padding: 1rem; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; font-size: 0.85rem; color: #a1a1aa">${res.content}</pre>
-                            `;
-                            resultsDiv.appendChild(card);
-                        });
-                    }
-                } else {
-                    document.getElementById('statSearch').textContent = data.breakdown.search_ms + 'ms';
-                    document.getElementById('statRetrieval').textContent = data.breakdown.retrieval_ms + 'ms';
-                    document.getElementById('statSynthesis').textContent = data.breakdown.synthesis_ms + 'ms';
-                    document.getElementById('statTotal').textContent = totalNetTime + 'ms';
+                document.getElementById('statTotal').textContent = totalTime + 'ms';
+                document.getElementById('statContext').textContent = (data.context_used || 0) + ' secciones';
 
-                    const card = document.createElement('div');
-                    card.className = 'ai-answer-card';
-                    card.innerHTML = `
-                        <div style="font-size: 0.8rem; color: var(--accent); margin-bottom: 1rem">RESPUESTA GENERADA DESDE: ${data.context_used}</div>
-                        <div style="line-height: 1.6">${data.answer}</div>
-                        <div style="margin-top: 1.5rem; font-size: 0.8rem; color: var(--text-dim); border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;">
-                            Proceso: Index Search -> Context Chunk Fetch -> Simulated LLM Synthesis
-                        </div>
-                    `;
-                    resultsDiv.appendChild(card);
+                if (data.error) {
+                    resultsDiv.innerHTML = `<p style="color: #ef4444">${data.error}: ${data.details || ''}</p>`;
+                    return;
                 }
+
+                const card = document.createElement('div');
+                card.className = 'ai-answer-card';
+                card.innerHTML = `
+                    <div style="font-size: 0.8rem; color: var(--accent); margin-bottom: 1rem">RESPUESTA GENERADA (${data.context_used || 0} secciones de contexto)</div>
+                    <div style="line-height: 1.8">${data.answer || 'Sin respuesta'}</div>
+                `;
+                resultsDiv.appendChild(card);
             } catch (err) {
                 loader.style.display = 'none';
-                resultsDiv.innerHTML = '<p style="color: #ef4444">Error de comunicación.</p>';
+                resultsDiv.innerHTML = '<p style="color: #ef4444">Error de conexión con el servidor.</p>';
             }
         }
-
     </script>
 </body>
 </html>
