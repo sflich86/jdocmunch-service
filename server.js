@@ -85,7 +85,10 @@ app.get('/ask', async (req, res) => {
         const responseText = result.response.text();
         const synthesis_ms = Date.now() - synthesisStart;
         res.json({ answer: responseText, context_used: chunks.length + " tramos", breakdown: { ...breakdown, synthesis_ms } });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        console.error("❌ Error en /ask:", err);
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Microservicio v1.0.3 listo`));

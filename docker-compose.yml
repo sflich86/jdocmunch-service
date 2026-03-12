@@ -4,15 +4,14 @@ services:
   jdocmunch:
     image: jdocmunch-service:latest
     volumes:
-      # Volumen mapeado para persistir la Base de Datos con el Índice de jdocmunch
       - jdocmunch_data:/root/.local/share/jdocmunch
-      # Volumen mapeado para persistir los libros también
       - jdocmunch_books:/app/books
     environment:
       - PORT=3000
       - NODE_ENV=production
       - GEMINI_API_KEY=AIzaSyArwwh72NTgOYDsSqMx_6HFfMMPO9L_Wjc
       - GOOGLE_API_KEY=AIzaSyArwwh72NTgOYDsSqMx_6HFfMMPO9L_Wjc
+      - JDOCMUNCH_EMBEDDING_PROVIDER=gemini
     deploy:
       mode: replicated
       replicas: 1
