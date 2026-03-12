@@ -2,12 +2,7 @@ version: "3.8"
 
 services:
   jdocmunch:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    # Si vas a subir la imagen a un registro (ej. Docker Hub) primero, cambialo aquí.
-    # image: tu-usuario/jdocmunch-service:latest 
-    container_name: jdocmunch_search
+    image: ghcr.io/sflich86/jdocmunch-service:latest
     volumes:
       # Volumen mapeado para persistir la Base de Datos con el Índice de jdocmunch
       - jdocmunch_data:/root/.local/share/jdocmunch
