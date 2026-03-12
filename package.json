@@ -1,6 +1,6 @@
 {
   "name": "jdocmunch-service",
-  "version": "1.0.13",
+  "version": "1.0.15",
   "description": "Microservicio de búsqueda y RAG para libros",
   "main": "server.js",
   "scripts": {
