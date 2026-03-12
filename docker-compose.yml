@@ -5,20 +5,10 @@ services:
     image: jdocmunch-service:latest
     volumes:
       - jdocmunch_data:/root/.local/share/jdocmunch
-<<<<<<< Updated upstream
-=======
-      # Si quieres subir los libros locales a través del servidor hacia el contenedor:
-      # - /ruta/en/tu/vps/libros:/app/books 
->>>>>>> Stashed changes
       - ./.env:/app/.env
     environment:
       - PORT=3000
       - NODE_ENV=production
-<<<<<<< Updated upstream
-=======
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
->>>>>>> Stashed changes
       - JDOCMUNCH_EMBEDDING_PROVIDER=gemini
     deploy:
       mode: replicated
@@ -50,4 +40,3 @@ networks:
 
 volumes:
   jdocmunch_data: {}
-  jdocmunch_books: {}
