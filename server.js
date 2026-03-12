@@ -13,7 +13,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Gemini Setup
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-// Usamos gemini-1.5-flash como fallback seguro si el preview falla
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 const transport = new StdioClientTransport({ 
@@ -21,7 +20,7 @@ const transport = new StdioClientTransport({
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp==1.3.0"],
     env: process.env // Asegura que las API Keys se pasen al motor de Python
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.5" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.6" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -117,4 +116,4 @@ app.get('/ask', async (req, res) => {
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Microservicio v1.0.5 listo`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Microservicio v1.0.6 listo`));
