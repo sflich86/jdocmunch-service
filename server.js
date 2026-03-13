@@ -111,7 +111,16 @@ async function performSearch(q) {
                 // section_id format: "repo::filename::heading_path" e.g. "local/books::libro_pt1.md::Capítulo 1"
                 const sectionId = r.id || "";
                 const parts = sectionId.split("::");
-                const sourceFile = parts.length > 1 ? parts[1] : (parts[0] || "desconocido");
+                
+                // jDocMunch structure: "repo::filename.md::Section Heading"
+                // We seek the part that looks like a filename (has a dot) or a path.
+                let sourceFile = "desconocido";
+                if (parts.length > 1) {
+                    // Start from index 1 as index 0 is always the repo name
+                    sourceFile = parts.slice(1).find(p => p.includes('.')) || parts[1];
+                } else {
+                    sourceFile = parts[0] || "desconocido";
+                }
 
                 chunks.push({ 
                     title: r.title, 
