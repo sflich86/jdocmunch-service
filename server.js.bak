@@ -39,22 +39,10 @@ async function connectClient() {
     }
 }
 
-function getUserBooksDir(userId) {
-    const dir = path.join(BOOKS_DIR, userId || 'anonymous');
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-    return dir;
-}
-
-function getUserRepo(userId) {
-    return `local/${userId || 'anonymous'}`;
-}
-
 let isIndexing = false;
 let needsReindex = false;
 
-async function processIndexQueue(userId) {
+async function processIndexQueue() {
     if (isIndexing) {
         needsReindex = true;
         return;
@@ -62,48 +50,47 @@ async function processIndexQueue(userId) {
     isIndexing = true;
     needsReindex = false;
 
-    const userDir = getUserBooksDir(userId);
-    console.log(`[BACKGROUND] 🔄 Iniciando indexador para ${userId} en ${userDir}...`);
+    console.log("[BACKGROUND] 🔄 Iniciando indexador en proceso separado...");
     
     try {
         const bgTransport = new StdioClientTransport({ 
             command: "uvx", 
             args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
-            env: { ...process.env, JDOCMUNCH_REPO: getUserRepo(userId) } 
+            env: process.env 
         });
-        const indexClient = new Client({ name: "indexer", version: "1.0.18" }, { capabilities: {} });
+        const indexClient = new Client({ name: "indexer", version: "1.0.17" }, { capabilities: {} });
         await indexClient.connect(bgTransport);
         
         await indexClient.callTool({
             name: "index_local",
             arguments: { 
-                path: userDir,
+                path: BOOKS_DIR,
                 use_ai_summaries: false,
                 use_embeddings: true
             }
         });
         
-        console.log(`[BACKGROUND] ✅ Indexación para ${userId} completada.`);
+        console.log("[BACKGROUND] ✅ Indexación semántica completada con éxito.");
         try { await bgTransport.close(); } catch(e) {}
     } catch (e) {
-        console.error(`[BACKGROUND] ❌ Error indexando ${userId}:`, e.message);
+        console.error("[BACKGROUND] ❌ Error indexando:", e.message || "Unknown error");
     } finally {
         isIndexing = false;
         if (needsReindex) {
-            processIndexQueue(userId);
+            console.log("[BACKGROUND] 🔄 Procesando re-indexación encolada...");
+            processIndexQueue();
         }
     }
 }
 
-async function performSearch(q, userId) {
+async function performSearch(q) {
     await connectClient();
     
-    const userRepo = getUserRepo(userId);
     // 1. Search sections
     const searchStart = Date.now();
     const result = await client.callTool({ 
         name: "search_sections", 
-        arguments: { repo: userRepo, query: q, max_results: 8 } 
+        arguments: { repo: REPO, query: q, max_results: 8 } 
     });
     const data = JSON.parse(result.content[0].text);
     const search_ms = Date.now() - searchStart;
@@ -116,20 +103,15 @@ async function performSearch(q, userId) {
             try {
                 const sec = await client.callTool({ 
                     name: "get_section", 
-                    arguments: { repo: userRepo, section_id: r.id } 
+                    arguments: { repo: REPO, section_id: r.id } 
                 });
                 const sData = JSON.parse(sec.content[0].text);
 
                 // Extract source file from section_id
+                // section_id format: "repo::filename::heading_path" e.g. "local/books::libro_pt1.md::Capítulo 1"
                 const sectionId = r.id || "";
                 const parts = sectionId.split("::");
-                
-                let sourceFile = "desconocido";
-                if (parts.length > 1) {
-                    sourceFile = parts.slice(1).find(p => p.includes('.')) || parts[1];
-                } else {
-                    sourceFile = parts[0] || "desconocido";
-                }
+                const sourceFile = parts.length > 1 ? parts[1] : (parts[0] || "desconocido");
 
                 chunks.push({ 
                     title: r.title, 
@@ -160,16 +142,14 @@ app.get('/health', (req, res) => {
 
 // List indexed books
 app.get('/books', (req, res) => {
-    const userId = req.query.user_id;
-    const userDir = getUserBooksDir(userId);
     try {
-        if (!fs.existsSync(userDir)) {
+        if (!fs.existsSync(BOOKS_DIR)) {
             return res.json({ books: [] });
         }
-        const files = fs.readdirSync(userDir)
+        const files = fs.readdirSync(BOOKS_DIR)
             .filter(f => ['.md', '.txt', '.rst'].includes(path.extname(f).toLowerCase()))
             .map(f => {
-                const stat = fs.statSync(path.join(userDir, f));
+                const stat = fs.statSync(path.join(BOOKS_DIR, f));
                 return {
                     filename: f,
                     size: stat.size,
@@ -183,10 +163,10 @@ app.get('/books', (req, res) => {
 });
 
 app.get('/search', async (req, res) => {
-    const { q, user_id } = req.query;
+    const q = req.query.q;
     if (!q) return res.status(400).json({ error: "Falta q" });
     try {
-        const { chunks, breakdown } = await performSearch(q, user_id);
+        const { chunks, breakdown } = await performSearch(q);
         res.json({ results: chunks, breakdown });
     } catch (err) { 
         res.status(500).json({ error: err.message }); 
@@ -194,15 +174,15 @@ app.get('/search', async (req, res) => {
 });
 
 app.get('/ask', async (req, res) => {
-    const { q, user_id } = req.query;
+    const q = req.query.q;
     const currentKey = getApiKey();
-    console.log(`[v1.0.18] 🔍 Pregunta: "${q}" | User: ${user_id} | Key: ${currentKey ? "Presente" : "VACÍA"}`);
+    console.log(`[v1.0.16] 🔍 Pregunta: "${q}" | Key: ${currentKey ? "Presente" : "VACÍA"}`);
 
     if (!currentKey) return res.status(500).json({ error: "Falta API Key" });
     if (!q) return res.status(400).json({ error: "Falta q" });
 
     try {
-        const { chunks, breakdown } = await performSearch(q, user_id);
+        const { chunks, breakdown } = await performSearch(q);
         
         const synthesisStart = Date.now();
         const contextText = chunks.length > 0 
@@ -235,7 +215,7 @@ app.get('/ask', async (req, res) => {
 });
 
 app.post('/ingest', async (req, res) => {
-    const { filename, content, user_id } = req.body;
+    const { filename, content } = req.body;
     if (!filename || !content) {
         return res.status(400).json({ error: "filename y content (markdown) son requeridos" });
     }
@@ -243,18 +223,24 @@ app.post('/ingest', async (req, res) => {
     try {
         await connectClient();
         
-        const userDir = getUserBooksDir(user_id);
+        // 1. Guardar archivo físicamente en la carpeta de libros
+        if (!fs.existsSync(BOOKS_DIR)) {
+            fs.mkdirSync(BOOKS_DIR, { recursive: true });
+        }
 
+        // Siempre guardar como .md
         const safeName = filename.endsWith('.md') ? filename : filename.replace(/\.[^.]+$/, '.md');
-        const filePath = path.join(userDir, safeName);
+        const filePath = path.join(BOOKS_DIR, safeName);
         fs.writeFileSync(filePath, content);
-        console.log(`[INGEST] 📥 [User: ${user_id}] Archivo guardado: ${safeName}`);
+        console.log(`[INGEST] 📥 Archivo guardado: ${safeName} (${content.length} chars)`);
 
-        processIndexQueue(user_id);
+        // 2. Disparar re-indexación local en background
+        console.log(`[INGEST] 🔄 Encolando re-indexación en background...`);
+        processIndexQueue(); // Fire and forget
 
         res.json({ 
             success: true, 
-            message: `Archivo ${safeName} subido correctamente para el usuario ${user_id}.`
+            message: `Archivo ${safeName} subido correctamente. La indexación semántica se ejecutará en segundo plano.`
         });
     } catch (err) {
         console.error(`[INGEST] ❌ Error:`, err.message);
@@ -263,7 +249,7 @@ app.post('/ingest', async (req, res) => {
 });
 
 app.delete('/ingest', async (req, res) => {
-    const { filename, user_id } = req.body;
+    const { filename } = req.body;
     if (!filename) {
         return res.status(400).json({ error: "filename es requerido" });
     }
@@ -271,7 +257,7 @@ app.delete('/ingest', async (req, res) => {
     try {
         await connectClient();
         
-        const userDir = getUserBooksDir(user_id);
+        // Buscar y borrar todas las variantes (con .md o sin)
         const baseName = filename.replace(/\.[^.]+$/, '');
         const possibleFiles = [
             filename, 
@@ -282,21 +268,22 @@ app.delete('/ingest', async (req, res) => {
         let deletedCount = 0;
 
         for (const f of possibleFiles) {
-            const filePath = path.join(userDir, f);
+            const filePath = path.join(BOOKS_DIR, f);
             if (fs.existsSync(filePath)) {
                 fs.unlinkSync(filePath);
                 deletedCount++;
-                console.log(`[DELETE] 🗑️ [User: ${user_id}] Archivo borrado: ${f}`);
+                console.log(`[DELETE] 🗑️ Archivo borrado: ${f}`);
             }
         }
 
         if (deletedCount > 0) {
-            processIndexQueue(user_id);
+            console.log(`[DELETE] 🔄 Encolando re-indexación tras borrado...`);
+            processIndexQueue(); // Fire and forget
         }
 
         res.json({ 
             success: true, 
-            message: deletedCount > 0 ? "Archivo eliminado e índice actualizado" : "Archivo no encontrado",
+            message: deletedCount > 0 ? "Archivo eliminado e índice actualizado" : "Archivo no encontrado en el VPS",
             deleted: deletedCount
         });
     } catch (err) {
