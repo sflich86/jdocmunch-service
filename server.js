@@ -27,7 +27,7 @@ const transport = new StdioClientTransport({
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
     env: mcpEnv
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.22" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.23" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -93,10 +93,24 @@ async function processIndexQueue(userId) {
             args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
             env: env
         });
-        const indexClient = new Client({ name: "indexer", version: "1.0.22" }, { capabilities: {} });
+        const indexClient = new Client({ name: "indexer", version: "1.0.23" }, { capabilities: {} });
         await indexClient.connect(bgTransport);
 
         const userRepo = getUserRepo(userId);
+        
+        // 🗑️ LIMPIEZA FÍSICA: Eliminar cualquier archivo que no sea .md para evitar que jDocMunch se confunda con binarios
+        console.log(`[BACKGROUND] 🧹 Limpiando archivos no-Markdown en ${userDir}...`);
+        try {
+            const files = fs.readdirSync(userDir);
+            for (const f of files) {
+                if (!f.toLowerCase().endsWith('.md')) {
+                    fs.unlinkSync(path.join(userDir, f));
+                    console.log(`[BACKGROUND] 🗑️ Borrado binario/sucio: ${f}`);
+                }
+            }
+        } catch (e) {
+            console.warn(`[BACKGROUND] ⚠️ Error limpiando archivos:`, e.message);
+        }
 
         // 🔥 PURGE antes de INDEX: Garantiza que archivos borrados del disco desaparezcan del índice
         console.log(`[BACKGROUND] 🔥 Purgando repositorio ${userRepo} antes de re-indexar...`);
@@ -193,7 +207,7 @@ async function performSearch(q, userId) {
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.22', 
+        version: '1.0.23', 
         mcp_connected: isConnected,
         embedding_ready: !!getApiKey(),
         timestamp: new Date().toISOString()
@@ -370,5 +384,5 @@ app.post('/reset', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.22 listo en puerto ${PORT}`);
+    console.log(`🚀 Microservicio v1.0.23 listo en puerto ${PORT}`);
 });
