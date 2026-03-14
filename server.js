@@ -40,7 +40,8 @@ async function connectClient() {
 }
 
 function getUserBooksDir(userId) {
-    const dir = path.join(BOOKS_DIR, userId || 'anonymous');
+    const id = userId || 'default';
+    const dir = path.join(BOOKS_DIR, id);
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
@@ -48,7 +49,8 @@ function getUserBooksDir(userId) {
 }
 
 function getUserRepo(userId) {
-    return `local/${userId || 'anonymous'}`;
+    const id = userId || 'default';
+    return `local/${id}`;
 }
 
 let isIndexing = false;
@@ -248,9 +250,9 @@ app.post('/ingest', async (req, res) => {
         const safeName = filename.endsWith('.md') ? filename : filename.replace(/\.[^.]+$/, '.md');
         const filePath = path.join(userDir, safeName);
         fs.writeFileSync(filePath, content);
-        console.log(`[INGEST] 📥 [User: ${user_id}] Archivo guardado: ${safeName}`);
+        console.log(`[INGEST] 📥 [User: ${user_id || 'default'}] Archivo guardado: ${safeName} en ${filePath}`);
 
-        processIndexQueue(user_id);
+        processIndexQueue(user_id || 'default');
 
         res.json({ 
             success: true, 
