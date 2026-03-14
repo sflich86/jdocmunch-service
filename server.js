@@ -25,7 +25,7 @@ const transport = new StdioClientTransport({
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
     env: process.env 
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.18" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.19" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -89,9 +89,23 @@ async function processIndexQueue(userId) {
             args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
             env: { ...process.env, JDOCMUNCH_REPO: getUserRepo(userId) } 
         });
-        const indexClient = new Client({ name: "indexer", version: "1.0.18" }, { capabilities: {} });
+        const indexClient = new Client({ name: "indexer", version: "1.0.19" }, { capabilities: {} });
         await indexClient.connect(bgTransport);
         
+        const userRepo = getUserRepo(userId);
+        
+        // 🔥 PURGE antes de INDEX: Garantiza que archivos borrados del disco desaparezcan del índice
+        console.log(`[BACKGROUND] 🔥 Purgando repositorio ${userRepo} antes de re-indexar...`);
+        try {
+            await indexClient.callTool({
+                name: "delete_repo",
+                arguments: { repo: userRepo }
+            });
+        } catch (e) {
+            console.warn(`[BACKGROUND] ⚠️ No se pudo purgar ${userRepo} (quizás no existía):`, e.message);
+        }
+
+        console.log(`[BACKGROUND] 📥 Indexando archivos en ${userDir}...`);
         await indexClient.callTool({
             name: "index_local",
             arguments: { 
@@ -101,7 +115,7 @@ async function processIndexQueue(userId) {
             }
         });
         
-        console.log(`[BACKGROUND] ✅ Indexación para ${userId} completada.`);
+        console.log(`[BACKGROUND] ✅ Sincronización para ${userId} completada.`);
         try { await bgTransport.close(); } catch(e) {}
     } catch (e) {
         console.error(`[BACKGROUND] ❌ Error indexando ${userId}:`, e.message);
@@ -170,7 +184,7 @@ async function performSearch(q, userId) {
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.18', 
+        version: '1.0.19', 
         mcp_connected: isConnected,
         timestamp: new Date().toISOString()
     });
@@ -346,5 +360,5 @@ app.post('/reset', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.18 listo en puerto ${PORT}`);
+    console.log(`🚀 Microservicio v1.0.19 listo en puerto ${PORT}`);
 });
