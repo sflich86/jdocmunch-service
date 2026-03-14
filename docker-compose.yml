@@ -13,12 +13,9 @@ services:
       - JDOCMUNCH_EMBEDDING_PROVIDER=gemini
     networks:
       - traefik_public
-      - general_network
 
 networks:
   traefik_public:
-    external: true
-  general_network:
     external: true
 
 volumes:
