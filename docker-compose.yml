@@ -13,6 +13,19 @@ services:
       - PORT=3000
       - NODE_ENV=production
       - JDOCMUNCH_EMBEDDING_PROVIDER=gemini
+    networks:
+      - general_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ssjdocmunchss.rule=Host(`ssjdocmunchss.odontolab.co`)"
+      - "traefik.http.routers.ssjdocmunchss.entrypoints=websecure"
+      - "traefik.http.routers.ssjdocmunchss.tls.certresolver=myresolver"
+      - "traefik.http.services.ssjdocmunchss.loadbalancer.server.port=3000"
+      - "traefik.docker.network=general_network"
+
+networks:
+  general_network:
+    external: true
 
 volumes:
   jdocmunch_data: {}
