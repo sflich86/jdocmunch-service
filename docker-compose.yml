@@ -2,6 +2,7 @@ version: "3.8"
 
 services:
   jdocmunch:
+    build: .
     image: jdocmunch-service:latest
     volumes:
       - jdocmunch_data:/root/.local/share/jdocmunch
