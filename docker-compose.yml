@@ -4,6 +4,8 @@ services:
     image: jdocmunch-service:latest
     container_name: jdocmunch-service
     restart: always
+    ports:
+      - "3000:3000"
     volumes:
       - jdocmunch_data:/root/.local/share/jdocmunch
       - ./.env:/app/.env
@@ -11,12 +13,6 @@ services:
       - PORT=3000
       - NODE_ENV=production
       - JDOCMUNCH_EMBEDDING_PROVIDER=gemini
-    networks:
-      - traefik_public
-
-networks:
-  traefik_public:
-    external: true
 
 volumes:
   jdocmunch_data: {}
