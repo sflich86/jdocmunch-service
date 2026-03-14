@@ -323,6 +323,28 @@ app.delete('/ingest', async (req, res) => {
     }
 });
 
+app.post('/reset', async (req, res) => {
+    const { user_id } = req.body;
+    try {
+        await connectClient();
+        const userRepo = getUserRepo(user_id);
+        console.log(`[RESET] 🔥 Purgando repositorio de vectores: ${userRepo}`);
+        
+        await client.callTool({
+            name: "delete_repo",
+            arguments: { repo: userRepo }
+        });
+
+        // Disparar re-indexación inmediata de los archivos físicos que SÍ deberían estar
+        processIndexQueue(user_id || 'default');
+
+        res.json({ success: true, message: `Repositorio ${userRepo} reseteado y re-indexación iniciada.` });
+    } catch (err) {
+        console.error(`[RESET] ❌ Error:`, err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Microservicio v1.0.16 listo en puerto ${PORT}`);
 });
