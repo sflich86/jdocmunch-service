@@ -25,7 +25,7 @@ const transport = new StdioClientTransport({
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
     env: process.env 
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.19" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.20" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -89,7 +89,7 @@ async function processIndexQueue(userId) {
             args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
             env: { ...process.env, JDOCMUNCH_REPO: getUserRepo(userId) } 
         });
-        const indexClient = new Client({ name: "indexer", version: "1.0.19" }, { capabilities: {} });
+        const indexClient = new Client({ name: "indexer", version: "1.0.20" }, { capabilities: {} });
         await indexClient.connect(bgTransport);
         
         const userRepo = getUserRepo(userId);
@@ -135,7 +135,7 @@ async function performSearch(q, userId) {
     const searchStart = Date.now();
     const result = await client.callTool({ 
         name: "search_sections", 
-        arguments: { repo: userRepo, query: q, max_results: 8 } 
+        arguments: { repo: userRepo, query: q, max_results: 15 } 
     });
     const data = JSON.parse(result.content[0].text);
     const search_ms = Date.now() - searchStart;
@@ -184,7 +184,7 @@ async function performSearch(q, userId) {
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.19', 
+        version: '1.0.20', 
         mcp_connected: isConnected,
         timestamp: new Date().toISOString()
     });
@@ -360,5 +360,5 @@ app.post('/reset', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.19 listo en puerto ${PORT}`);
+    console.log(`🚀 Microservicio v1.0.20 listo en puerto ${PORT}`);
 });
