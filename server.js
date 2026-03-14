@@ -15,27 +15,30 @@ const BOOKS_DIR = path.join(__dirname, 'books');
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Gemini Setup
-const getApiKey = () => process.env.GEMINI_API_KEY || "";
+const getApiKey = () => process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 const ai = new GoogleGenAI({
     apiKey: getApiKey()
 });
 
+const mcpEnv = { ...process.env, GOOGLE_API_KEY: getApiKey() };
+
 const transport = new StdioClientTransport({ 
     command: "uvx", 
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
-    env: process.env 
+    env: mcpEnv
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.20" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.22" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
     if (isConnected) return;
-    try { 
-        await client.connect(transport); 
-        isConnected = true; 
-        console.log("✅ MCP Conectado"); 
-    } catch (e) { 
-        console.error("❌ Error MCP:", e.message); 
+    try {
+        await transport.start();
+        await client.connect(transport);
+        isConnected = true;
+        console.log("✅ MCP Conectado");
+    } catch (e) {
+        console.error("❌ Error MCP:", e.message);
     }
 }
 
@@ -45,7 +48,7 @@ function getUserBooksDir(userId) {
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
-    
+
     // Limpieza de emergencia para el proyecto actual
     // Si estamos en el namespace 'default', borrar libros antiguos conocidos para evitar alucinaciones
     if (id === 'default') {
@@ -60,7 +63,7 @@ function getUserBooksDir(userId) {
             }
         });
     }
-    
+
     return dir;
 }
 
@@ -82,18 +85,19 @@ async function processIndexQueue(userId) {
 
     const userDir = getUserBooksDir(userId);
     console.log(`[BACKGROUND] 🔄 Iniciando indexador para ${userId} en ${userDir}...`);
-    
+
     try {
-        const bgTransport = new StdioClientTransport({ 
-            command: "uvx", 
+        const env = { ...process.env, GOOGLE_API_KEY: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY };
+        const bgTransport = new StdioClientTransport({
+            command: "uvx",
             args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
-            env: { ...process.env, JDOCMUNCH_REPO: getUserRepo(userId) } 
+            env: env
         });
-        const indexClient = new Client({ name: "indexer", version: "1.0.20" }, { capabilities: {} });
+        const indexClient = new Client({ name: "indexer", version: "1.0.22" }, { capabilities: {} });
         await indexClient.connect(bgTransport);
-        
+
         const userRepo = getUserRepo(userId);
-        
+
         // 🔥 PURGE antes de INDEX: Garantiza que archivos borrados del disco desaparezcan del índice
         console.log(`[BACKGROUND] 🔥 Purgando repositorio ${userRepo} antes de re-indexar...`);
         try {
@@ -135,7 +139,12 @@ async function performSearch(q, userId) {
     const searchStart = Date.now();
     const result = await client.callTool({ 
         name: "search_sections", 
-        arguments: { repo: userRepo, query: q, max_results: 15 } 
+        arguments: { 
+            repo: userRepo, 
+            query: q, 
+            max_results: 15,
+            min_score: 0.1 // Asegurar que traemos algo aunque no sea perfecto
+        } 
     });
     const data = JSON.parse(result.content[0].text);
     const search_ms = Date.now() - searchStart;
@@ -184,8 +193,9 @@ async function performSearch(q, userId) {
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.20', 
+        version: '1.0.22', 
         mcp_connected: isConnected,
+        embedding_ready: !!getApiKey(),
         timestamp: new Date().toISOString()
     });
 });
@@ -360,5 +370,5 @@ app.post('/reset', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.20 listo en puerto ${PORT}`);
+    console.log(`🚀 Microservicio v1.0.22 listo en puerto ${PORT}`);
 });
