@@ -45,6 +45,22 @@ function getUserBooksDir(userId) {
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
+    
+    // Limpieza de emergencia para el proyecto actual
+    // Si estamos en el namespace 'default', borrar libros antiguos conocidos para evitar alucinaciones
+    if (id === 'default') {
+        const oldFiles = ['libro_pt1.md', 'libro_pt2.md', 'nervio_vago.md'];
+        oldFiles.forEach(f => {
+            const p = path.join(dir, f);
+            if (fs.existsSync(p)) {
+                try {
+                    fs.unlinkSync(p);
+                    console.log(`[PURGE] 🧹 Borrado archivo antiguo: ${f}`);
+                } catch(e) {}
+            }
+        });
+    }
+    
     return dir;
 }
 
