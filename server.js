@@ -323,6 +323,13 @@ app.delete('/ingest', async (req, res) => {
     }
 });
 
+app.get('/reindex', (req, res) => {
+    const userId = req.query.user_id || 'default';
+    console.log(`[REINDEX] 🔄 Disparo manual de indexación para usuario: ${userId}`);
+    processIndexQueue(userId);
+    res.json({ success: true, message: `Indexación iniciada para ${userId}` });
+});
+
 app.post('/reset', async (req, res) => {
     const { user_id } = req.body;
     try {
