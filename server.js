@@ -323,13 +323,6 @@ app.delete('/ingest', async (req, res) => {
     }
 });
 
-app.get('/reindex', (req, res) => {
-    const userId = req.query.user_id || 'default';
-    console.log(`[REINDEX] 🔄 Disparo manual de indexación para usuario: ${userId}`);
-    processIndexQueue(userId);
-    res.json({ success: true, message: `Indexación iniciada para ${userId}` });
-});
-
 app.post('/reset', async (req, res) => {
     const { user_id } = req.body;
     try {
@@ -342,7 +335,7 @@ app.post('/reset', async (req, res) => {
             arguments: { repo: userRepo }
         });
 
-        // Disparar re-indexación inmediata de los archivos físicos que SÍ deberían estar
+        // Disparar re-indexación inmediata
         processIndexQueue(user_id || 'default');
 
         res.json({ success: true, message: `Repositorio ${userRepo} reseteado y re-indexación iniciada.` });
@@ -353,5 +346,5 @@ app.post('/reset', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.16 listo en puerto ${PORT}`);
+    console.log(`🚀 Microservicio v1.0.17 listo en puerto ${PORT}`);
 });
