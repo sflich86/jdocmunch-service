@@ -25,7 +25,7 @@ const transport = new StdioClientTransport({
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
     env: process.env 
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.16" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.18" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -170,7 +170,7 @@ async function performSearch(q, userId) {
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.16', 
+        version: '1.0.18', 
         mcp_connected: isConnected,
         timestamp: new Date().toISOString()
     });
@@ -346,5 +346,5 @@ app.post('/reset', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.17 listo en puerto ${PORT}`);
+    console.log(`🚀 Microservicio v1.0.18 listo en puerto ${PORT}`);
 });
