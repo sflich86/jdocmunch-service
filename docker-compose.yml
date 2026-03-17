@@ -1,11 +1,10 @@
-version: "3.8"
-
 services:
   jdocmunch:
     build: .
     image: jdocmunch-service:latest
     volumes:
       - jdocmunch_data:/root/.local/share/jdocmunch
+      - jdocmunch_books:/app/books
       - /opt/jdocmunch-service/.env:/app/.env
     environment:
       PORT: 3000
@@ -31,10 +30,8 @@ services:
         - traefik.http.services.ssjdocmunchss.loadbalancer.server.port=3000
         - traefik.docker.network=traefik_public
     networks:
-      traefik_public:
-      general_network:
-        aliases:
-          - ssjdocmunchss.odontolab.co
+      - traefik_public
+      - general_network
 
 networks:
   traefik_public:
@@ -44,3 +41,4 @@ networks:
 
 volumes:
   jdocmunch_data: {}
+  jdocmunch_books: {}

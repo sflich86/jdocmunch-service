@@ -1,33 +1,44 @@
 const express = require('express');
+const cors = require('cors');
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const bodyParser = require("body-parser");
 const { GoogleGenAI } = require("@google/genai");
+
+// Modular Imports
+const { keyManager } = require("./lib/keyManager");
+const { startPipeline } = require("./lib/pipeline");
+const { db } = require("./lib/db");
+const { runMigrations } = require("./lib/migrations");
+const { callGemini } = require("./lib/geminiCaller");
+
 require('dotenv').config();
 
 const app = express();
-app.use(express.json({ limit: '50mb' }));
+app.use(cors());
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.text({ type: 'text/*', limit: '50mb' }));
+
 const PORT = process.env.PORT || 3000;
-const REPO = "local/books";
 const BOOKS_DIR = path.join(__dirname, 'books');
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Gemini Setup
-const getApiKey = () => process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
-const ai = new GoogleGenAI({
-    apiKey: getApiKey()
-});
-
-const mcpEnv = { ...process.env, GOOGLE_API_KEY: getApiKey() };
+// MCP Setup
+const mcpEnv = { ...process.env };
+// Ensure at least one key is available for MCP init if needed
+const allKeys = keyManager.loadKeys('GEMINI_LIVE_KEY');
+if (allKeys[0]) mcpEnv.GOOGLE_API_KEY = allKeys[0];
 
 const transport = new StdioClientTransport({ 
     command: "uvx", 
     args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
     env: mcpEnv
 });
-const client = new Client({ name: "jdocmunch-bridge", version: "1.0.23" }, { capabilities: {} });
+const client = new Client({ name: "jdocmunch-bridge", version: "1.0.26" }, { capabilities: {} });
 
 let isConnected = false;
 async function connectClient() {
@@ -42,28 +53,11 @@ async function connectClient() {
     }
 }
 
+// Utils
 function getUserBooksDir(userId) {
     const id = userId || 'default';
     const dir = path.join(BOOKS_DIR, id);
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-
-    // Limpieza de emergencia para el proyecto actual
-    // Si estamos en el namespace 'default', borrar libros antiguos conocidos para evitar alucinaciones
-    if (id === 'default') {
-        const oldFiles = ['libro_pt1.md', 'libro_pt2.md', 'nervio_vago.md'];
-        oldFiles.forEach(f => {
-            const p = path.join(dir, f);
-            if (fs.existsSync(p)) {
-                try {
-                    fs.unlinkSync(p);
-                    console.log(`[PURGE] 🧹 Borrado archivo antiguo: ${f}`);
-                } catch(e) {}
-            }
-        });
-    }
-
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     return dir;
 }
 
@@ -72,317 +66,215 @@ function getUserRepo(userId) {
     return `local/${id}`;
 }
 
-let isIndexing = false;
-let needsReindex = false;
-
-async function processIndexQueue(userId) {
-    if (isIndexing) {
-        needsReindex = true;
-        return;
-    }
-    isIndexing = true;
-    needsReindex = false;
-
-    const userDir = getUserBooksDir(userId);
-    console.log(`[BACKGROUND] 🔄 Iniciando indexador para ${userId} en ${userDir}...`);
-
-    try {
-        const env = { ...process.env, GOOGLE_API_KEY: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY };
-        const bgTransport = new StdioClientTransport({
-            command: "uvx",
-            args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
-            env: env
-        });
-        const indexClient = new Client({ name: "indexer", version: "1.0.23" }, { capabilities: {} });
-        await indexClient.connect(bgTransport);
-
-        const userRepo = getUserRepo(userId);
-        
-        // 🗑️ LIMPIEZA FÍSICA: Eliminar cualquier archivo que no sea .md para evitar que jDocMunch se confunda con binarios
-        console.log(`[BACKGROUND] 🧹 Limpiando archivos no-Markdown en ${userDir}...`);
-        try {
-            const files = fs.readdirSync(userDir);
-            for (const f of files) {
-                if (!f.toLowerCase().endsWith('.md')) {
-                    fs.unlinkSync(path.join(userDir, f));
-                    console.log(`[BACKGROUND] 🗑️ Borrado binario/sucio: ${f}`);
-                }
-            }
-        } catch (e) {
-            console.warn(`[BACKGROUND] ⚠️ Error limpiando archivos:`, e.message);
-        }
-
-        // 🔥 PURGE antes de INDEX: Garantiza que archivos borrados del disco desaparezcan del índice
-        console.log(`[BACKGROUND] 🔥 Purgando repositorio ${userRepo} antes de re-indexar...`);
-        try {
-            await indexClient.callTool({
-                name: "delete_repo",
-                arguments: { repo: userRepo }
-            });
-        } catch (e) {
-            console.warn(`[BACKGROUND] ⚠️ No se pudo purgar ${userRepo} (quizás no existía):`, e.message);
-        }
-
-        console.log(`[BACKGROUND] 📥 Indexando archivos en ${userDir}...`);
-        await indexClient.callTool({
-            name: "index_local",
-            arguments: { 
-                path: userDir,
-                use_ai_summaries: false,
-                use_embeddings: true
-            }
-        });
-        
-        console.log(`[BACKGROUND] ✅ Sincronización para ${userId} completada.`);
-        try { await bgTransport.close(); } catch(e) {}
-    } catch (e) {
-        console.error(`[BACKGROUND] ❌ Error indexando ${userId}:`, e.message);
-    } finally {
-        isIndexing = false;
-        if (needsReindex) {
-            processIndexQueue(userId);
-        }
-    }
-}
-
 async function performSearch(q, userId) {
     await connectClient();
-    
     const userRepo = getUserRepo(userId);
-    // 1. Search sections
-    const searchStart = Date.now();
-    const result = await client.callTool({ 
-        name: "search_sections", 
-        arguments: { 
-            repo: userRepo, 
-            query: q, 
-            max_results: 15,
-            min_score: 0.1 // Asegurar que traemos algo aunque no sea perfecto
-        } 
-    });
-    const data = JSON.parse(result.content[0].text);
-    const search_ms = Date.now() - searchStart;
+    try {
+        const result = await client.callTool({ 
+            name: "search_sections", 
+            arguments: { repo: userRepo, query: q, max_results: 15, min_score: 0.1 } 
+        });
+        const data = JSON.parse(result.content[0].text);
 
-    // 2. Get full content for each result
-    const retrievalStart = Date.now();
-    let chunks = [];
-    if (data.results) {
-        for (const r of data.results) {
-            try {
-                const sec = await client.callTool({ 
-                    name: "get_section", 
-                    arguments: { repo: userRepo, section_id: r.id } 
-                });
-                const sData = JSON.parse(sec.content[0].text);
+        let chunks = [];
+        if (data.results) {
+            for (const r of data.results) {
+                try {
+                    const sec = await client.callTool({ name: "get_section", arguments: { repo: userRepo, section_id: r.id } });
+                    const sData = JSON.parse(sec.content[0].text);
+                    const sectionId = r.id || "";
+                    const parts = sectionId.split("::");
+                    const sourceFile = parts.length > 1 ? (parts.slice(1).find(p => p.includes('.')) || parts[1]) : (parts[0] || "desconocido");
 
-                // Extract source file from section_id
-                const sectionId = r.id || "";
-                const parts = sectionId.split("::");
-                
-                let sourceFile = "desconocido";
-                if (parts.length > 1) {
-                    sourceFile = parts.slice(1).find(p => p.includes('.')) || parts[1];
-                } else {
-                    sourceFile = parts[0] || "desconocido";
-                }
-
-                chunks.push({ 
-                    title: r.title, 
-                    content: sData.section?.content || sData.content || "",
-                    summary: r.summary,
-                    source_file: sourceFile,
-                    section_id: sectionId
-                });
-            } catch (secErr) {
-                console.warn(`⚠️ Error recuperando sección ${r.id}:`, secErr.message);
+                    chunks.push({ 
+                        title: r.title, 
+                        content: sData.section?.content || sData.content || "",
+                        summary: r.summary,
+                        source_file: sourceFile,
+                        section_id: sectionId
+                    });
+                } catch (e) {}
             }
         }
+        return { chunks };
+    } catch (err) {
+        console.error("Search failed:", err.message);
+        return { chunks: [] };
     }
-    const retrieval_ms = Date.now() - retrievalStart;
-
-    return { chunks, breakdown: { search_ms, retrieval_ms } };
 }
 
-// Health check
+// Public API Endpoints
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.23', 
+        version: '1.0.26', 
         mcp_connected: isConnected,
-        embedding_ready: !!getApiKey(),
-        timestamp: new Date().toISOString()
+        tiers: keyManager.getStatus()
     });
 });
 
-// List indexed books
-app.get('/books', (req, res) => {
+app.get('/books', async (req, res) => {
     const userId = req.query.user_id;
-    const userDir = getUserBooksDir(userId);
     try {
-        if (!fs.existsSync(userDir)) {
-            return res.json({ books: [] });
+        // Fetch from Turso (Fase 3 Source of Truth)
+        const result = await db.execute({
+            sql: "SELECT id, title, author, index_status, created_at FROM books ORDER BY created_at DESC",
+            args: []
+        });
+        res.json({ books: result.rows, total: result.rows.length });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/books/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await db.execute({
+            sql: "SELECT content FROM book_raw WHERE book_id = ?",
+            args: [id]
+        });
+        if (result.rows.length === 0) return res.status(404).json({ error: "Libro no encontrado" });
+        res.json({ id, content: result.rows[0].content });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/books/:id', async (req, res) => {
+    const { id } = req.params;
+    const userId = req.body.user_id || req.query.user_id || 'admin';
+    try {
+        // 1. Eliminar de Turso (Fase 3 Resilience)
+        await db.execute({ sql: "DELETE FROM books WHERE id = ?", args: [id] });
+        await db.execute({ sql: "DELETE FROM book_raw WHERE book_id = ?", args: [id] });
+        await db.execute({ sql: "DELETE FROM book_dna WHERE book_id = ?", args: [id] });
+        await db.execute({ sql: "DELETE FROM book_structure WHERE book_id = ?", args: [id] });
+        await db.execute({ sql: "DELETE FROM enrichment_jobs WHERE book_id = ?", args: [id] });
+
+        // 2. Eliminar del sistema de archivos si existe
+        const userDir = getUserBooksDir(userId);
+        const files = fs.readdirSync(userDir);
+        const targetFile = files.find(f => f.startsWith(id) || f.includes(id));
+        if (targetFile) {
+            fs.unlinkSync(path.join(userDir, targetFile));
         }
-        const files = fs.readdirSync(userDir)
-            .filter(f => ['.md', '.txt', '.rst'].includes(path.extname(f).toLowerCase()))
-            .map(f => {
-                const stat = fs.statSync(path.join(userDir, f));
-                return {
-                    filename: f,
-                    size: stat.size,
-                    modified: stat.mtime.toISOString()
-                };
+
+        // 3. Notificar a MCP para limpiar índices (Opcional pero recomendado)
+        try {
+            await connectClient();
+            await client.callTool({ 
+                name: "invalidate_cache", 
+                arguments: { repo: getUserRepo(userId) } 
             });
-        res.json({ books: files, total: files.length });
+        } catch (e) {
+            console.warn("MCP Clean warning:", e.message);
+        }
+
+        res.json({ success: true, message: `Libro ${id} eliminado correctamente.` });
     } catch (err) {
+        console.error("Delete failed:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-app.get('/search', async (req, res) => {
-    const { q, user_id } = req.query;
-    if (!q) return res.status(400).json({ error: "Falta q" });
+app.get('/enrichment-status/:bookId', async (req, res) => {
+    const { bookId } = req.params;
     try {
-        const { chunks, breakdown } = await performSearch(q, user_id);
-        res.json({ results: chunks, breakdown });
-    } catch (err) { 
-        res.status(500).json({ error: err.message }); 
-    }
+        const result = await db.execute({
+            sql: "SELECT status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? ORDER BY created_at DESC LIMIT 1",
+            args: [bookId]
+        });
+        if (result.rows.length === 0) return res.status(404).json({ error: "Job no encontrado" });
+        res.json(result.rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/ask', async (req, res) => {
     const { q, user_id } = req.query;
-    const currentKey = getApiKey();
-    console.log(`[v1.0.18] 🔍 Pregunta: "${q}" | User: ${user_id} | Key: ${currentKey ? "Presente" : "VACÍA"}`);
-
-    if (!currentKey) return res.status(500).json({ error: "Falta API Key" });
-    if (!q) return res.status(400).json({ error: "Falta q" });
+    if (!q) return res.status(400).json({ error: "Faltan parámetros" });
 
     try {
-        const { chunks, breakdown } = await performSearch(q, user_id);
+        const { chunks } = await performSearch(q, user_id);
+        const contextText = chunks.length > 0 ? chunks.map(c => `[${c.source_file}]: ${c.content}`).join("\n\n") : "Sin contexto.";
+        const prompt = `Responde basándote solo en el contexto.\nContexto:\n${contextText}\n\nPregunta: ${q}`;
         
-        const synthesisStart = Date.now();
-        const contextText = chunks.length > 0 
-            ? chunks.map(c => `[${c.source_file} → ${c.title}]: ${c.content}`).join("\n\n")
-            : "Contexto no encontrado.";
+        const answer = await callGemini(async (apiKey) => {
+            const { createClient } = require("@google/genai");
+            const client = createClient({ apiKey, platform: 'google' });
+            const result = await client.models.generateContent({
+                model: 'gemini-2.0-flash-exp',
+                contents: [{ role: 'user', parts: [{ text: prompt }] }]
+            });
+            return result.text;
+        }, { tier: 'batch', description: 'ask' });
 
-        const prompt = `Eres un experto literario. Responde la siguiente pregunta basándote SOLO en el contexto proporcionado.
-                        Contexto:\n${contextText}\n\nPregunta: ${q}`;
-        
-        // Gemini Call
-        const responseData = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-preview',
-            contents: [{
-                role: 'user',
-                parts: [{ text: prompt }]
-            }]
-        });
-
-        const synthesis_ms = Date.now() - synthesisStart;
-
-        res.json({ 
-            answer: responseData.text || "Sin respuesta", 
-            context_used: chunks.length + " tramos",
-            breakdown: { ...breakdown, synthesis_ms }
-        });
-    } catch (err) { 
-        console.error("❌ ERROR v1.0.16:", err.message);
-        res.status(500).json({ error: "Error AI", details: err.message }); 
-    }
+        res.json({ answer: answer || "Sin respuesta", context_used: chunks.length + " tramos" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/ingest', async (req, res) => {
-    const { filename, content, user_id } = req.body;
-    if (!filename || !content) {
-        return res.status(400).json({ error: "filename y content (markdown) son requeridos" });
-    }
-
     try {
-        await connectClient();
-        
-        const userDir = getUserBooksDir(user_id);
+        const userId = req.query.user_id || 'default';
+        const filename = req.query.filename || `upload-${Date.now()}.md`;
+        const text = req.body;
 
-        const safeName = filename.endsWith('.md') ? filename : filename.replace(/\.[^.]+$/, '.md');
-        const filePath = path.join(userDir, safeName);
-        fs.writeFileSync(filePath, content);
-        console.log(`[INGEST] 📥 [User: ${user_id || 'default'}] Archivo guardado: ${safeName} en ${filePath}`);
-
-        processIndexQueue(user_id || 'default');
-
-        res.json({ 
-            success: true, 
-            message: `Archivo ${safeName} subido correctamente para el usuario ${user_id}.`
-        });
-    } catch (err) {
-        console.error(`[INGEST] ❌ Error:`, err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.delete('/ingest', async (req, res) => {
-    const { filename, user_id } = req.body;
-    if (!filename) {
-        return res.status(400).json({ error: "filename es requerido" });
-    }
-
-    try {
-        await connectClient();
-        
-        const userDir = getUserBooksDir(user_id);
-        const baseName = filename.replace(/\.[^.]+$/, '');
-        const possibleFiles = [
-            filename, 
-            filename + ".md", 
-            baseName + ".md",
-            baseName + ".txt"
-        ];
-        let deletedCount = 0;
-
-        for (const f of possibleFiles) {
-            const filePath = path.join(userDir, f);
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-                deletedCount++;
-                console.log(`[DELETE] 🗑️ [User: ${user_id}] Archivo borrado: ${f}`);
-            }
+        if (!text || typeof text !== 'string') {
+            return res.status(400).json({ error: "Contenido no válido" });
         }
 
-        if (deletedCount > 0) {
-            processIndexQueue(user_id);
-        }
+        const bookId = crypto.randomUUID();
 
-        res.json({ 
-            success: true, 
-            message: deletedCount > 0 ? "Archivo eliminado e índice actualizado" : "Archivo no encontrado",
-            deleted: deletedCount
+        // 1. Guardar metadatos básicos
+        await db.execute({
+            sql: "INSERT INTO books (id, title, author, index_status) VALUES (?, ?, ?, ?)",
+            args: [bookId, filename.replace(/\.[^/.]+$/, ""), "Desconocido", "pending"]
         });
+
+        // 2. Guardar contenido raw (Fase 3 Resilience)
+        await db.execute({
+            sql: "INSERT INTO book_raw (book_id, content) VALUES (?, ?)",
+            args: [bookId, text]
+        });
+
+        // 3. Crear Job
+        const jobId = crypto.randomUUID();
+        await db.execute({
+            sql: "INSERT INTO enrichment_jobs (id, book_id, user_id, file_name, status) VALUES (?, ?, ?, ?, 'PENDING')",
+            args: [jobId, bookId, userId, filename]
+        });
+
+        // 4. Iniciar Pipeline
+        startPipeline(userId, bookId, jobId);
+
+        res.status(200).json({ success: true, bookId, jobId });
     } catch (err) {
-        console.error(`[DELETE] ❌ Error:`, err.message);
+        console.error("Ingest failed:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-app.post('/reset', async (req, res) => {
-    const { user_id } = req.body;
+// Auto-recovery & Startup
+async function recoverPendingJobs() {
+    console.log("[JOBS] 🔎 Buscando jobs pendientes...");
     try {
-        await connectClient();
-        const userRepo = getUserRepo(user_id);
-        console.log(`[RESET] 🔥 Purgando repositorio de vectores: ${userRepo}`);
-        
-        await client.callTool({
-            name: "delete_repo",
-            arguments: { repo: userRepo }
+        const pending = await db.execute({
+            sql: "SELECT * FROM enrichment_jobs WHERE status NOT IN ('COMPLETE', 'FAILED')"
         });
+        for (const job of pending.rows) {
+            console.log(`[JOBS] 🔄 Recuperando job ${job.id}...`);
+            startPipeline(job.user_id, job.book_id, job.id).catch(() => {});
+        }
+    } catch (err) { console.error("[JOBS] Error recovery:", err.message); }
+}
 
-        // Disparar re-indexación inmediata
-        processIndexQueue(user_id || 'default');
-
-        res.json({ success: true, message: `Repositorio ${userRepo} reseteado y re-indexación iniciada.` });
+async function initServer() {
+    try {
+        await runMigrations(db);
+        await recoverPendingJobs();
+        app.listen(PORT, () => {
+            console.log(`🚀 JDOCMUNCH Hardened v1.0.26 listening on port ${PORT}`);
+        });
     } catch (err) {
-        console.error(`[RESET] ❌ Error:`, err.message);
-        res.status(500).json({ error: err.message });
+        console.error("❌ Fallo crítico:", err);
+        process.exit(1);
     }
-});
+}
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Microservicio v1.0.23 listo en puerto ${PORT}`);
-});
+initServer();

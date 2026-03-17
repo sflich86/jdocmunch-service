@@ -13,9 +13,12 @@
   "type": "commonjs",
   "dependencies": {
     "@google/genai": "^1.44.0",
+    "@libsql/client": "^0.17.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "axios": "^1.13.6",
     "body-parser": "^2.2.2",
+    "cors": "^2.8.6",
+    "crypto": "^1.0.1",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "mime": "^4.1.0"
