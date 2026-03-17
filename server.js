@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 console.log("----------------------------------------------------------------");
-console.log("🚀 JDOCMUNCH STARTING - VERSION: 1.0.36-stable");
+console.log("🚀 JDOCMUNCH STARTING - VERSION: 1.0.37-hardened");
 console.log("----------------------------------------------------------------");
 const cors = require('cors');
 const path = require('path');
@@ -107,7 +107,7 @@ async function performSearch(q, userId) {
 app.get('/api/jdocmunch/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.36-stable', 
+        version: '1.0.37-hardened', 
         mcpConnected: true,
         tiers: keyManager.getStatus()
     });
@@ -168,7 +168,7 @@ app.post('/api/jdocmunch/jobs/reset-all', async (req, res) => {
 
 // Alias for legacy health check
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.0.36-stable', notice: 'Use /api/jdocmunch/health' });
+    res.json({ status: 'ok', version: '1.0.37-hardened', notice: 'Use /api/jdocmunch/health' });
 });
 
 app.get('/debug/logs', (req, res) => {
@@ -188,15 +188,15 @@ app.get('/debug/logs', (req, res) => {
         </head>
         <body>
             <h1>Live Trace Logs (Last 50)</h1>
-            <p>Version: 1.0.36-stable | Refrescando cada 5 segundos...</p>
+            <p>Version: 1.0.37-hardened | Refrescando cada 5 segundos...</p>
             <div id="logs">
-                ${traceLogs.slice().reverse().map(l => `
+                \${traceLogs.slice().reverse().map(l => \`
                     <div class="entry">
-                        <span class="timestamp">[${l.timestamp}]</span>
-                        <span class="method">${l.method}</span>
-                        <span class="url">${l.url}</span>
+                        <span class="timestamp">[\${l.timestamp}]</span>
+                        <span class="method">\${l.method}</span>
+                        <span class="url">\${l.url}</span>
                     </div>
-                `).join('')}
+                \`).join('')}
             </div>
         </body>
         </html>
@@ -233,7 +233,7 @@ app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async (req, res) => {
     if (id.includes('?')) id = id.split('?')[0];
     id = id.replace(/__DOT__/g, '.');
 
-    console.log(`[Server] DELETE request for book ID: ${id} (User: ${userId})`);
+    console.log(\`[Server] DELETE request for book ID: \${id} (User: \${userId})\`);
     
     try {
         const tables = [
@@ -248,15 +248,15 @@ app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async (req, res) => {
         for (const table of tables) {
             try {
                 const args = table.name === 'books' 
-                    ? [String(id), id.replace(/_/g, " "), `%${id.replace(/\./g, '_')}%`]
-                    : (table.name === 'enrichment_jobs' ? [String(id), `%${id}%`] : [String(id)]);
+                    ? [String(id), id.replace(/_/g, " "), \`%\${id.replace(/\\./g, '_')}%\`]
+                    : (table.name === 'enrichment_jobs' ? [String(id), \`%\${id}%\`] : [String(id)]);
                 
                 const result = await db.execute({ sql: table.sql, args });
                 dbResultsRowAffected[table.name] = result.rowsAffected;
-                console.log(`[Server][DELETE] Table ${table.name} affected: ${result.rowsAffected}`);
+                console.log(\`[Server][DELETE] Table \${table.name} affected: \${result.rowsAffected}\`);
             } catch (innerErr) {
-                console.error(`[Server][DELETE] Error in table ${table.name}:`, innerErr.message);
-                dbResultsRowAffected[table.name] = `ERROR: ${innerErr.message}`;
+                console.error(\`[Server][DELETE] Error in table \${table.name}:\`, innerErr.message);
+                dbResultsRowAffected[table.name] = \`ERROR: \${innerErr.message}\`;
             }
         }
 
@@ -275,11 +275,11 @@ app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async (req, res) => {
                   const fullPath = path.join(userDir, targetFile);
                   fs.unlinkSync(fullPath);
                   fileDeleted = true;
-                  console.log(`[Server] File deleted: ${targetFile}`);
+                  console.log(\`[Server] File deleted: \${targetFile}\`);
               }
             }
         } catch (fsErr) {
-            console.warn(`[Server] FS Delete warning:`, fsErr.message);
+            console.warn(\`[Server] FS Delete warning:\`, fsErr.message);
         }
 
         try {
@@ -288,7 +288,7 @@ app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async (req, res) => {
 
         res.json({ 
             success: true, 
-            message: `Book ${id} processed for deletion.`,
+            message: \`Book \${id} processed for deletion.\`,
             db_affected: dbResultsRowAffected,
             file_deleted: fileDeleted
         });
@@ -309,10 +309,10 @@ app.get(/^\/enrichment-status\/(.+)$/, async (req, res) => {
     bookId = bookId.replace(/__DOT__/g, '.');
 
     try {
-        const searchPattern = `%${bookId.replace(/_/g, '%')}%`;
+        const searchPattern = \`%\${bookId.replace(/_/g, '%')}%\`;
         const result = await db.execute({
             sql: "SELECT id, status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ? OR file_name LIKE ? ORDER BY created_at DESC LIMIT 1",
-            args: [bookId, `%${bookId}%`, searchPattern]
+            args: [bookId, \`%\${bookId}%\`, searchPattern]
         });
         
         if (result.rows.length === 0) return res.status(404).json({ error: "Job not found" });
@@ -326,8 +326,8 @@ app.get('/ask', async (req, res) => {
 
     try {
         const { chunks } = await performSearch(q, user_id);
-        const contextText = chunks.length > 0 ? chunks.map(c => `[${c.source_file}]: ${c.content}`).join("\n\n") : "No context available.";
-        const prompt = `Answer based only on the context.\nContext:\n${contextText}\n\nQuestion: ${q}`;
+        const contextText = chunks.length > 0 ? chunks.map(c => \`[\${c.source_file}]: \${c.content}\`).join("\n\n") : "No context available.";
+        const prompt = \`Answer based only on the context.\nContexto:\n\${contextText}\n\nQuestion: \${q}\`;
         
         const answer = await callGemini(async (apiKey) => {
             const genAI = new GoogleGenerativeAI(apiKey);
@@ -342,52 +342,52 @@ app.get('/ask', async (req, res) => {
 
 app.post('/ingest', async (req, res) => {
     const userId = req.query.user_id || 'default';
-    const filename = req.query.filename || `upload-${Date.now()}.md`;
+    const filename = req.query.filename || \`upload-\${Date.now()}.md\`;
     let text = req.body;
 
-    console.log(`[Ingest] Received request: ${filename} (user: ${userId})`);
+    console.log(\`[Ingest] Received request: \${filename} (user: \${userId})\`);
     
     if (text && typeof text === 'object') {
         if (text.content) text = text.content;
         else if (text.text) text = text.text;
         else text = JSON.stringify(text);
-        console.warn(`[Ingest] Warning: Text arrived as OBJECT. Forced to string. Length: ${text.length}`);
+        console.warn(\`[Ingest] Warning: Text arrived as OBJECT. Forced to string. New length: \${text ? text.length : 0}\`);
     }
 
     const safeUserId = String(userId);
     const safeFilename = String(filename);
     const safeText = String(text || '');
 
-    console.log(`[Ingest][DEBUG] Params: book_id=NEW, user_id="${safeUserId}", title="${safeFilename}", text_len=${safeText.length}`);
+    console.log(\`[Ingest][DEBUG] Params: book_id=NEW, user_id="\${safeUserId}", title="\${safeFilename}", text_len=\${safeText.length}\`);
 
     try {
         if (!safeText || safeText.length === 0) return res.status(400).json({ error: "Invalid or empty content" });
 
         const bookId = crypto.randomUUID();
         
-        console.log(`[Ingest][STEP 1] Inserting into books...`);
+        console.log(\`[Ingest][STEP 1] Inserting into books...\`);
         try {
             await db.execute({
                 sql: "INSERT INTO books (id, user_id, title, author, index_status) VALUES (?, ?, ?, ?, ?)",
-                args: [bookId, safeUserId, safeFilename.replace(/\.[^/.]+$/, ""), "Unknown", "pending"]
+                args: [bookId, safeUserId, safeFilename.replace(/\\.[^/.]+$/, ""), "Unknown", "pending"]
             });
         } catch (e1) {
-            console.error(`[Ingest][STEP 1] FAILED: ${e1.message}`);
-            throw new Error(`Step 1 (books) Mismatch: ${e1.message}`);
+            console.error(\`[Ingest][STEP 1] FAILED: \${e1.message}\`);
+            throw new Error(\`Step 1 (books) Mismatch: \${e1.message}\`);
         }
 
-        console.log(`[Ingest][STEP 2] Inserting into book_raw...`);
+        console.log(\`[Ingest][STEP 2] Inserting into book_raw...\`);
         try {
             await db.execute({
                 sql: "INSERT INTO book_raw (book_id, content) VALUES (?, ?)",
                 args: [bookId, safeText]
             });
         } catch (e2) {
-            console.error(`[Ingest][STEP 2] FAILED: ${e2.message}`);
-            throw new Error(`Step 2 (book_raw) Mismatch: ${e2.message}`);
+            console.error(\`[Ingest][STEP 2] FAILED: \${e2.message}\`);
+            throw new Error(\`Step 2 (book_raw) Mismatch: \${e2.message}\`);
         }
 
-        console.log(`[Ingest][STEP 3] Inserting into enrichment_jobs...`);
+        console.log(\`[Ingest][STEP 3] Inserting into enrichment_jobs...\`);
         try {
             const jobId = crypto.randomUUID();
             await db.execute({
@@ -398,8 +398,8 @@ app.post('/ingest', async (req, res) => {
             startPipeline(userId, bookId, jobId);
             res.status(200).json({ success: true, bookId, jobId });
         } catch (e3) {
-            console.error(`[Ingest][STEP 3] FAILED: ${e3.message}`);
-            throw new Error(`Step 3 (enrichment_jobs) Mismatch: ${e3.message}`);
+            console.error(\`[Ingest][STEP 3] FAILED: \${e3.message}\`);
+            throw new Error(\`Step 3 (enrichment_jobs) Mismatch: \${e3.message}\`);
         }
     } catch (err) {
         console.error("[Ingest] Error FATAL:", err.message);
@@ -407,12 +407,22 @@ app.post('/ingest', async (req, res) => {
     }
 });
 
+// Global Error Handler
+app.use((err, req, res, next) => {
+    console.error("[Global Error] ðŸš€", err);
+    res.status(500).json({ 
+        error: "Internal Server Error", 
+        message: err.message,
+        path: req.path
+    });
+});
+
 async function recoverPendingJobs() {
     console.log("[JOBS] Recovery startup...");
     try {
         const query = "SELECT id, book_id, user_id, status FROM enrichment_jobs WHERE status IN ('PENDING', 'PROCESSING', 'RETRY')";
         const pending = await db.execute(query);
-        console.log(`[JOBS] Recovery: ${pending.rows.length} jobs.`);
+        console.log(\`[JOBS] Recovery: \${pending.rows.length} jobs.\`);
         
         for (const job of pending.rows) {
             startPipeline(job.user_id, job.book_id, job.id).catch(() => {});
@@ -421,12 +431,12 @@ async function recoverPendingJobs() {
 }
 
 async function initServer() {
-    console.log("[Init] Starting v1.0.36-stable...");
+    console.log("[Init] Starting v1.0.37-hardened...");
     try {
         await runMigrations(db);
         await recoverPendingJobs();
         app.listen(PORT, () => {
-            console.log(`JDOCMUNCH Hardened v1.0.36-stable listening on port ${PORT}`);
+            console.log(\`JDOCMUNCH Hardened v1.0.37-hardened listening on port \${PORT}\`);
         });
     } catch (err) {
         console.error("Fatal:", err);
