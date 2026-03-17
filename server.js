@@ -22,6 +22,12 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.text({ type: 'text/*', limit: '50mb' }));
 
+// Trace logging
+app.use((req, res, next) => {
+    console.log(`[Trace] ${new Date().toISOString()} ${req.method} ${req.url}`);
+    next();
+});
+
 const PORT = process.env.PORT || 3000;
 const BOOKS_DIR = path.join(__dirname, 'books');
 
@@ -137,8 +143,8 @@ app.get('/books/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/books/:id([^/]+)', async (req, res) => {
-    const { id } = req.params;
+app.delete(/^\/books\/(.+)$/, async (req, res) => {
+    const id = req.params[0];
     const userId = req.body.user_id || req.query.user_id || 'admin';
     console.log(`[Server] 🗑️ Intentando eliminar libro con ID: ${id} (Usuario: ${userId})`);
     try {
@@ -181,8 +187,8 @@ app.delete('/books/:id([^/]+)', async (req, res) => {
     }
 });
 
-app.get('/enrichment-status/:bookId', async (req, res) => {
-    const { bookId } = req.params;
+app.get(/^\/enrichment-status\/(.+)$/, async (req, res) => {
+    const bookId = req.params[0];
     try {
         // Mejorar query para buscar por ID o por nombre de archivo (resiliencia legacy)
         const result = await db.execute({
