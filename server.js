@@ -140,9 +140,11 @@ app.get('/books/:id', async (req, res) => {
 app.delete('/books/:id', async (req, res) => {
     const { id } = req.params;
     const userId = req.body.user_id || req.query.user_id || 'admin';
+    console.log(`[Server] 🗑️ Intentando eliminar libro con ID: ${id} (Usuario: ${userId})`);
     try {
         // 1. Eliminar de Turso (Fase 3 Resilience)
-        await db.execute({ sql: "DELETE FROM books WHERE id = ?", args: [id] });
+        const delResult = await db.execute({ sql: "DELETE FROM books WHERE id = ?", args: [id] });
+        console.log(`[Server] Eliminar de DB status:`, delResult.rowsAffected);
         await db.execute({ sql: "DELETE FROM book_raw WHERE book_id = ?", args: [id] });
         await db.execute({ sql: "DELETE FROM book_dna WHERE book_id = ?", args: [id] });
         await db.execute({ sql: "DELETE FROM book_structure WHERE book_id = ?", args: [id] });
