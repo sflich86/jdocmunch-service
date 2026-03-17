@@ -6,8 +6,11 @@ RUN apt-get update && apt-get install -y curl ca-certificates \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar 'uv' y pre-instalar el motor v1.3.0 con soporte de Gemini
-RUN pip install uv && uv tool install jdocmunch-mcp[gemini]==1.3.0
+# Instalar 'uv' de forma segura y pre-instalar el motor v1.3.0
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
+RUN sh /uv-installer.sh && rm /uv-installer.sh
+ENV PATH="/root/.local/bin/:$PATH"
+RUN uv tool install jdocmunch-mcp[gemini]==1.3.0
 
 WORKDIR /app
 
