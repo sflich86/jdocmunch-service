@@ -1,4 +1,7 @@
 const express = require('express');
+console.log("----------------------------------------------------------------");
+console.log("🚀 JDOCMUNCH STARTING - VERSION: 1.0.30-shield-ultra");
+console.log("----------------------------------------------------------------");
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -24,16 +27,18 @@ app.use(bodyParser.text({ type: 'text/*', limit: '50mb' }));
 // Trace Logging & Double Shield Decoding Middleware
 const traceLogs = [];
 app.use((req, res, next) => {
-    // 1. Double Shield Decoding (Bypass Vercel 404s for .md)
-    // We replace __DOT__ with actual dots on the server
+    // [Double Shield] Decodificación manual de IDs con puntos
+    // Maneja tanto el reemplazo de texto como casos accidentales de codificación URL
     if (req.url.includes('__DOT__')) {
         const oldUrl = req.url;
+        // Reemplazo agresivo de __DOT__ por .
         req.url = req.url.split('__DOT__').join('.');
-        // Also update req.path for routing consistency
+        
+        // Sincronizar req.path para que Express reconozca la ruta correctamente
         if (req.path.includes('__DOT__')) {
             req.path = req.path.split('__DOT__').join('.');
         }
-        console.log(`[Shield] 🛡️ Decoded URL: ${oldUrl} -> ${req.url}`);
+        console.log(`[Shield] 🛡️ Decoded: ${oldUrl} -> ${req.url}`);
     }
 
     const logEntry = {
@@ -118,8 +123,8 @@ async function performSearch(q, userId) {
 app.get('/health', async (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.29', 
-        mcp_connected: true, // Asumimos ok si llega aquí o lo validamos
+        version: '1.0.30-shield-ultra', 
+        mcp_connected: true,
         tiers: keyManager.getStatus()
     });
 });
@@ -141,7 +146,7 @@ app.get('/debug/logs', (req, res) => {
         </head>
         <body>
             <h1>📡 Live Trace Logs (Last 50)</h1>
-            <p>Version: 1.0.29 | Refrescando cada 5 segundos...</p>
+            <p>Version: 1.0.30-shield-ultra | Refrescando cada 5 segundos...</p>
             <div id="logs">
                 ${traceLogs.slice().reverse().map(l => `
                     <div class="entry">
@@ -301,10 +306,10 @@ app.post('/ingest', async (req, res) => {
 
         const bookId = crypto.randomUUID();
 
-        // 1. Guardar metadatos básicos
+        // 1. Guardar metadatos básicos (Alineado con esquema actual)
         await db.execute({
-            sql: "INSERT INTO books (id, title, author, index_status) VALUES (?, ?, ?, ?)",
-            args: [bookId, filename.replace(/\.[^/.]+$/, ""), "Desconocido", "pending"]
+            sql: "INSERT INTO books (id, user_id, title, author, index_status) VALUES (?, ?, ?, ?, ?)",
+            args: [bookId, userId, filename.replace(/\.[^/.]+$/, ""), "Desconocido", "pending"]
         });
 
         // 2. Guardar contenido raw (Fase 3 Resilience)
@@ -349,7 +354,7 @@ async function initServer() {
         await runMigrations(db);
         await recoverPendingJobs();
         app.listen(PORT, () => {
-            console.log(`🚀 JDOCMUNCH Hardened v1.0.29 listening on port ${PORT}`);
+            console.log(`🚀 JDOCMUNCH Hardened v1.0.30-shield-ultra listening on port ${PORT}`);
         });
     } catch (err) {
         console.error("❌ Fallo crítico:", err);
