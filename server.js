@@ -192,6 +192,51 @@ app.get("/debug/logs", function(req, res) {
     res.send(html);
 });
 
+app.get("/api/jdocmunch/debug/dashboard", async function(req, res) {
+    try {
+        var html = '<!DOCTYPE html><html><head><title>JDocMunch Debug Dashboard</title>' +
+            '<style>body { font-family: Arial, sans-serif; background: #1e1e1e; color: #eee; padding: 20px; } ' +
+            'table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; } ' +
+            'th, td { padding: 8px; border: 1px solid #444; text-align: left; } ' +
+            'th { background: #333; } ' +
+            '.status-ERROR, .status-FAILED { color: #ff5555; } .status-COMPLETE { color: #55ff55; } .status-PENDING { color: #ffff55; }' +
+            '</style><meta http-equiv="refresh" content="5"></head><body>' +
+            '<h1>JDocMunch Ingestion Dashboard</h1><p>Auto-refreshes every 5s | Version: ' + VERSION + '</p>';
+
+        // Get Books
+        var booksRes = await db.execute("SELECT id, title, author, index_status, created_at FROM books ORDER BY created_at DESC LIMIT 10");
+        html += '<h2>Recent Books (books)</h2><table><tr><th>ID</th><th>Title</th><th>Author</th><th>Status</th><th>Created</th></tr>';
+        for (var i=0; i<booksRes.rows.length; i++) {
+            var b = booksRes.rows[i];
+            html += '<tr><td>' + b.id + '</td><td>' + b.title + '</td><td>' + b.author + '</td><td class="status-' + b.index_status + '">' + b.index_status + '</td><td>' + b.created_at + '</td></tr>';
+        }
+        html += '</table>';
+
+        // Get Jobs
+        var jobsRes = await db.execute("SELECT book_id, status, current_step, error_message, created_at FROM enrichment_jobs ORDER BY created_at DESC LIMIT 10");
+        html += '<h2>Recent Pipelines (enrichment_jobs)</h2><table><tr><th>Book ID</th><th>Status</th><th>Step</th><th>Error</th><th>Created</th></tr>';
+        for (var j=0; j<jobsRes.rows.length; j++) {
+            var pj = jobsRes.rows[j];
+            html += '<tr><td>' + pj.book_id + '</td><td class="status-' + (pj.status || 'PENDING') + '">' + pj.status + '</td><td>' + (pj.current_step || '-') + '</td><td style="color:#ff5555">' + (pj.error_message || '') + '</td><td>' + pj.created_at + '</td></tr>';
+        }
+        html += '</table>';
+
+        // Get Logs
+        var logsRes = await db.execute("SELECT job_id, stream, message, created_at FROM job_logs ORDER BY created_at DESC LIMIT 30");
+        html += '<h2>Recent Logs (job_logs - Last 30)</h2><table><tr><th>Job ID</th><th>Stream</th><th>Message</th><th>Time</th></tr>';
+        for (var k=0; k<logsRes.rows.length; k++) {
+            var l = logsRes.rows[k];
+            var displayMsg = l.message ? l.message.substring(0, 150) + (l.message.length > 150 ? '...' : '') : '';
+            html += '<tr><td>' + l.job_id + '</td><td>' + l.stream + '</td><td><pre style="margin:0;white-space:pre-wrap;font-family:inherit;">' + displayMsg + '</pre></td><td>' + l.created_at + '</td></tr>';
+        }
+        html += '</table></body></html>';
+
+        res.send(html);
+    } catch (err) {
+        res.status(500).send("Dashboard Error: " + err.message);
+    }
+});
+
 app.get("/books", async function(req, res) {
     try {
         var result = await db.execute({
@@ -424,7 +469,7 @@ app.post("/ingest", async function(req, res) {
         });
 
         startPipeline(userId, bookId, jobId);
-        res.status(200).json({ success: true, bookId: bookId, jobId: jobId });
+        res.status(200).json({ success: true, bookId: bookId, book_id: bookId, jobId: jobId });
 
     } catch (err) {
         console.error("[Ingest] Fatal: " + err.message);
