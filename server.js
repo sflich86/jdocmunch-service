@@ -22,9 +22,27 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.text({ type: 'text/*', limit: '50mb' }));
 
-// Trace logging
+// Trace Logging & Double Shield Decoding Middleware
+const traceLogs = [];
 app.use((req, res, next) => {
-    console.log(`[Trace] ${new Date().toISOString()} ${req.method} ${req.url}`);
+    // 1. Double Shield Decoding (Bypass Vercel 404s for .md)
+    // We replace __DOT__ with actual dots on the server
+    if (req.url.includes('__DOT__')) {
+        const oldUrl = req.url;
+        req.url = req.url.replace(/__DOT__/g, '.');
+        console.log(`[Shield] 🛡️ Decoded URL: ${oldUrl} -> ${req.url}`);
+    }
+
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        method: req.method,
+        url: req.url,
+        ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+    };
+    traceLogs.push(logEntry);
+    if (traceLogs.length > 50) traceLogs.shift();
+    
+    console.log(`[Trace] 📡 ${logEntry.timestamp} | ${logEntry.method} ${logEntry.url}`);
     next();
 });
 
@@ -113,10 +131,43 @@ async function performSearch(q, userId) {
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.26', 
+        version: '1.0.27', 
         mcp_connected: isConnected,
         tiers: keyManager.getStatus()
     });
+});
+
+app.get('/debug/logs', (req, res) => {
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Microservice Trace Logs</title>
+            <style>
+                body { font-family: monospace; background: #1a1a1a; color: #00ff00; padding: 20px; }
+                .entry { border-bottom: 1px solid #333; padding: 5px 0; }
+                .method { color: #ff00ff; font-weight: bold; }
+                .url { color: #00ffff; }
+                .timestamp { color: #888; margin-right: 10px; }
+            </style>
+            <meta http-equiv="refresh" content="5">
+        </head>
+        <body>
+            <h1>📡 Live Trace Logs (Last 50)</h1>
+            <p>Version: 1.0.27 | Refrescando cada 5 segundos...</p>
+            <div id="logs">
+                ${traceLogs.slice().reverse().map(l => `
+                    <div class="entry">
+                        <span class="timestamp">[${l.timestamp}]</span>
+                        <span class="method">${l.method}</span>
+                        <span class="url">${l.url}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </body>
+        </html>
+    `;
+    res.send(html);
 });
 
 app.get('/books', async (req, res) => {
