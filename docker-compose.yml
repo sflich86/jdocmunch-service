@@ -1,7 +1,7 @@
 services:
   jdocmunch:
     build: .
-    image: jdocmunch-service:latest
+    image: ghcr.io/sflich86/jdocmunch-service:latest
     volumes:
       - jdocmunch_data:/root/.local/share/jdocmunch
       - jdocmunch_books:/app/books
