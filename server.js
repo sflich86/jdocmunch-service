@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 console.log("----------------------------------------------------------------");
-console.log("🚀 JDOCMUNCH STARTING - VERSION: 1.0.32-observability-ultra");
+console.log("🚀 JDOCMUNCH STARTING - VERSION: 1.0.33-hardened-migration");
 console.log("----------------------------------------------------------------");
 const cors = require('cors');
 const path = require('path');
@@ -107,7 +107,7 @@ async function performSearch(q, userId) {
 app.get('/api/jdocmunch/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.32-observability-ultra', 
+        version: '1.0.33-hardened-migration', 
         mcpConnected: true,
         tiers: keyManager.getStatus()
     });
@@ -135,7 +135,7 @@ app.get('/api/jdocmunch/jobs/:jobId/logs', async (req, res) => {
 
 // Alias for legacy health check
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.0.32-observability-ultra', notice: 'Use /api/jdocmunch/health' });
+    res.json({ status: 'ok', version: '1.0.33-hardened-migration', notice: 'Use /api/jdocmunch/health' });
 });
 
 app.get('/debug/logs', (req, res) => {
@@ -155,7 +155,7 @@ app.get('/debug/logs', (req, res) => {
         </head>
         <body>
             <h1>📡 Live Trace Logs (Last 50)</h1>
-            <p>Version: 1.0.32-observability-ultra | Refrescando cada 5 segundos...</p>
+            <p>Version: 1.0.33-hardened-migration | Refrescando cada 5 segundos...</p>
             <div id="logs">
                 ${traceLogs.slice().reverse().map(l => `
                     <div class="entry">
@@ -350,12 +350,14 @@ app.post('/ingest', async (req, res) => {
 async function recoverPendingJobs() {
     console.log("[JOBS] 🔎 Iniciando recovery con visibilidad ultra...");
     try {
+        // Query explícita basada en recomendación del experto
         const query = "SELECT id, book_id, user_id, status FROM enrichment_jobs WHERE status IN ('PENDING', 'PROCESSING', 'RETRY')";
         console.log(`[JOBS] Ejecutando: ${query}`);
         
         const pending = await db.execute(query);
         console.log(`[JOBS] 📊 Encontrados ${pending.rows.length} jobs para recuperar.`);
         
+        // Reportar estados actuales para diagnóstico (Expert Rec)
         const stats = await db.execute("SELECT status, COUNT(*) as count FROM enrichment_jobs GROUP BY status");
         console.log("[JOBS] Estadísticas actuales en DB:", JSON.stringify(stats.rows));
 
@@ -371,13 +373,13 @@ async function recoverPendingJobs() {
 }
 
 async function initServer() {
-    console.log("[Init] 🚀 Iniciando v1.0.32-observability-ultra...");
+    console.log("[Init] 🚀 Iniciando v1.0.33-hardened-migration...");
     try {
         await runMigrations(db);
         console.log("[Init] Migraciones OK.");
         await recoverPendingJobs();
         app.listen(PORT, () => {
-            console.log(`🚀 JDOCMUNCH Hardened v1.0.32-observability-ultra listening on port ${PORT}`);
+            console.log(`🚀 JDOCMUNCH Hardened v1.0.33-hardened-migration listening on port ${PORT}`);
         });
     } catch (err) {
         console.error("❌ Fallo crítico:", err);
