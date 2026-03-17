@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 console.log("----------------------------------------------------------------");
-console.log("🚀 JDOCMUNCH STARTING - VERSION: 1.0.33-hardened-migration");
+console.log("🚀 JDOCMUNCH STARTING - VERSION: 1.0.34-shield-final-repair");
 console.log("----------------------------------------------------------------");
 const cors = require('cors');
 const path = require('path');
@@ -107,7 +107,7 @@ async function performSearch(q, userId) {
 app.get('/api/jdocmunch/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.33-hardened-migration', 
+        version: '1.0.34-shield-final-repair', 
         mcpConnected: true,
         tiers: keyManager.getStatus()
     });
@@ -133,9 +133,24 @@ app.get('/api/jdocmunch/jobs/:jobId/logs', async (req, res) => {
     }
 });
 
+// Diagnostic Route (Expert Recommendation)
+app.get('/api/jdocmunch/debug/db-schema', async (req, res) => {
+    try {
+        const tables = ['books', 'enrichment_jobs', 'book_raw', 'book_dna', 'book_structure', 'job_logs'];
+        const schema = {};
+        for (const table of tables) {
+            const result = await db.execute(`PRAGMA table_info(${table})`);
+            schema[table] = result.rows;
+        }
+        res.json(schema);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Alias for legacy health check
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.0.33-hardened-migration', notice: 'Use /api/jdocmunch/health' });
+    res.json({ status: 'ok', version: '1.0.34-shield-final-repair', notice: 'Use /api/jdocmunch/health' });
 });
 
 app.get('/debug/logs', (req, res) => {
@@ -155,15 +170,15 @@ app.get('/debug/logs', (req, res) => {
         </head>
         <body>
             <h1>📡 Live Trace Logs (Last 50)</h1>
-            <p>Version: 1.0.33-hardened-migration | Refrescando cada 5 segundos...</p>
+            <p>Version: 1.0.34-shield-final-repair | Refrescando cada 5 segundos...</p>
             <div id="logs">
-                ${traceLogs.slice().reverse().map(l => `
+                \${traceLogs.slice().reverse().map(l => \`
                     <div class="entry">
-                        <span class="timestamp">[${l.timestamp}]</span>
-                        <span class="method">${l.method}</span>
-                        <span class="url">${l.url}</span>
+                        <span class="timestamp">[\${l.timestamp}]</span>
+                        <span class="method">\${l.method}</span>
+                        <span class="url">\${l.url}</span>
                     </div>
-                `).join('')}
+                \`).join('')}
             </div>
         </body>
         </html>
@@ -200,10 +215,10 @@ app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async (req, res) => {
     if (id.includes('?')) id = id.split('?')[0];
     id = id.replace(/__DOT__/g, '.');
 
-    console.log(`[Server] 🗑️ Intentando eliminar libro con ID: ${id} (Usuario: ${userId})`);
+    console.log(`[Server] 🗑️ Intentando eliminar libro con ID: \${id} (Usuario: \${userId})`);
     
     try {
-        // 1. Fase DB - Statement level logging (Expert Condition 6 & 11)
+        // 1. Fase DB - Statement level logging
         const tables = [
             { name: 'enrichment_jobs', sql: "DELETE FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ?" },
             { name: 'book_raw', sql: "DELETE FROM book_raw WHERE book_id = ?" },
@@ -212,23 +227,23 @@ app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async (req, res) => {
             { name: 'books', sql: "DELETE FROM books WHERE id = ? OR title = ? OR id LIKE ?" }
         ];
 
-        let dbResults = {};
+        let dbResultsRowAffected = {};
         for (const table of tables) {
             try {
                 const args = table.name === 'books' 
-                    ? [id, id.replace(/_/g, " "), `%${id.replace(/\./g, '_')}%`]
-                    : (table.name === 'enrichment_jobs' ? [id, `%${id}%`] : [id]);
+                    ? [id, id.replace(/_/g, " "), \`%\${id.replace(/\\./g, '_')}%\`]
+                    : (table.name === 'enrichment_jobs' ? [id, \`%\${id}%\`] : [id]);
                 
                 const result = await db.execute({ sql: table.sql, args });
-                dbResults[table.name] = result.rowsAffected;
-                console.log(`[Server][DELETE] Table ${table.name} affected: ${result.rowsAffected}`);
+                dbResultsRowAffected[table.name] = result.rowsAffected;
+                console.log(\`[Server][DELETE] Table \${table.name} affected: \${result.rowsAffected}\`);
             } catch (innerErr) {
-                console.error(`[Server][DELETE] ❌ Error en tabla ${table.name}:`, innerErr.message);
-                dbResults[table.name] = `ERROR: ${innerErr.message}`;
+                console.error(\`[Server][DELETE] ❌ Error en tabla \${table.name}:\`, innerErr.message);
+                dbResultsRowAffected[table.name] = \`ERROR: \${innerErr.message}\`;
             }
         }
 
-        // 2. Eliminar del sistema de archivos con búsqueda difusa
+        // 2. Eliminar del sistema de archivos
         const userDir = getUserBooksDir(userId);
         let fileDeleted = false;
         try {
@@ -244,30 +259,26 @@ app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async (req, res) => {
                   const fullPath = path.join(userDir, targetFile);
                   fs.unlinkSync(fullPath);
                   fileDeleted = true;
-                  console.log(`[Server] Archivo eliminado: ${targetFile}`);
+                  console.log(\`[Server] Archivo eliminado: \${targetFile}\`);
               }
             }
         } catch (fsErr) {
-            console.warn(`[Server] Error al intentar borrar archivo físico para ${id}:`, fsErr.message);
+            console.warn(\`[Server] FS Delete warning:\`, fsErr.message);
         }
 
         // 3. Notificar a MCP
         try {
-            await callTool("delete_index", { repo: getUserRepo(userId) }).catch(err => {
-                console.warn("MCP Clean inner warning:", err.message);
-            });
-        } catch (e) {
-            console.warn("MCP Clean warning:", e.message);
-        }
+            await callTool("delete_index", { repo: getUserRepo(userId) }).catch(() => {});
+        } catch (e) {}
 
         res.json({ 
             success: true, 
-            message: `Libro ${id} procesado para eliminación.`,
-            db_results: dbResults,
+            message: \`Libro \${id} procesado para eliminación.\`,
+            db_affected: dbResultsRowAffected,
             file_deleted: fileDeleted
         });
     } catch (err) {
-        console.error("Delete failed:", err);
+        console.error("Delete fatal:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -283,10 +294,10 @@ app.get(/^\/enrichment-status\/(.+)$/, async (req, res) => {
     bookId = bookId.replace(/__DOT__/g, '.');
 
     try {
-        const searchPattern = `%${bookId.replace(/_/g, '%')}%`;
+        const searchPattern = \`%\${bookId.replace(/_/g, '%')}%\`;
         const result = await db.execute({
             sql: "SELECT id, status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ? OR file_name LIKE ? ORDER BY created_at DESC LIMIT 1",
-            args: [bookId, `%${bookId}%`, searchPattern]
+            args: [bookId, \`%\${bookId}%\`, searchPattern]
         });
         
         if (result.rows.length === 0) return res.status(404).json({ error: "Job no encontrado" });
@@ -300,8 +311,8 @@ app.get('/ask', async (req, res) => {
 
     try {
         const { chunks } = await performSearch(q, user_id);
-        const contextText = chunks.length > 0 ? chunks.map(c => `[${c.source_file}]: ${c.content}`).join("\n\n") : "Sin contexto.";
-        const prompt = `Responde basándote solo en el contexto.\nContexto:\n${contextText}\n\nPregunta: ${q}`;
+        const contextText = chunks.length > 0 ? chunks.map(c => \`[\${c.source_file}]: \${c.content}\`).join("\n\n") : "Sin contexto.";
+        const prompt = \`Responde basándote solo en el contexto.\nContexto:\n\${contextText}\n\nPregunta: \${q}\`;
         
         const answer = await callGemini(async (apiKey) => {
             const genAI = new GoogleGenerativeAI(apiKey);
@@ -315,74 +326,69 @@ app.get('/ask', async (req, res) => {
 });
 
 app.post('/ingest', async (req, res) => {
-    try {
-        const userId = req.query.user_id || 'default';
-        const filename = req.query.filename || `upload-${Date.now()}.md`;
-        const text = req.body;
+    const userId = req.query.user_id || 'default';
+    const filename = req.query.filename || \`upload-\${Date.now()}.md\`;
+    const text = req.body;
 
-        if (!text || typeof text !== 'string') return res.status(400).json({ error: "Contenido no válido" });
+    console.log(\`[Ingest] 📥 Recibida petición: \${filename} (user: \${userId})\`);
+    console.log(\`[Ingest] Param types: bookId=uuid, userId=\${typeof userId}, filename=\${typeof filename}, text=\${typeof text}\`);
+
+    try {
+        if (!text || typeof text !== 'string') return res.status(400).json({ error: \`Contenido no válido (esperaba string, recibí \${typeof text})\` });
 
         const bookId = crypto.randomUUID();
+        
+        // 1. Guardar metadatos
         await db.execute({
             sql: "INSERT INTO books (id, user_id, title, author, index_status) VALUES (?, ?, ?, ?, ?)",
-            args: [bookId, userId, filename.replace(/\.[^/.]+$/, ""), "Desconocido", "pending"]
+            args: [bookId, String(userId), filename.replace(/\\.[^/.]+$/, ""), "Desconocido", "pending"]
         });
+
+        // 2. Guardar contenido raw
         await db.execute({
             sql: "INSERT INTO book_raw (book_id, content) VALUES (?, ?)",
             args: [bookId, text]
         });
 
+        // 3. Crear Job
         const jobId = crypto.randomUUID();
         await db.execute({
             sql: "INSERT INTO enrichment_jobs (id, book_id, user_id, file_name, status) VALUES (?, ?, ?, ?, 'PENDING')",
-            args: [jobId, bookId, userId, filename]
+            args: [jobId, bookId, String(userId), filename]
         });
 
         startPipeline(userId, bookId, jobId);
         res.status(200).json({ success: true, bookId, jobId });
     } catch (err) {
-        console.error("Ingest failed:", err);
+        console.error("[Ingest] ❌ Error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
 
-// Auto-recovery & Startup (Expert Recommendation - Critical Logging)
+// Auto-recovery & Startup
 async function recoverPendingJobs() {
-    console.log("[JOBS] 🔎 Iniciando recovery con visibilidad ultra...");
+    console.log("[JOBS] 🔎 Recovery startup...");
     try {
-        // Query explícita basada en recomendación del experto
         const query = "SELECT id, book_id, user_id, status FROM enrichment_jobs WHERE status IN ('PENDING', 'PROCESSING', 'RETRY')";
-        console.log(`[JOBS] Ejecutando: ${query}`);
-        
         const pending = await db.execute(query);
-        console.log(`[JOBS] 📊 Encontrados ${pending.rows.length} jobs para recuperar.`);
+        console.log(\`[JOBS] 📊 Recovery: \${pending.rows.length} jobs.\`);
         
-        // Reportar estados actuales para diagnóstico (Expert Rec)
-        const stats = await db.execute("SELECT status, COUNT(*) as count FROM enrichment_jobs GROUP BY status");
-        console.log("[JOBS] Estadísticas actuales en DB:", JSON.stringify(stats.rows));
-
         for (const job of pending.rows) {
-            console.log(`[JOBS] 🔄 Re-encolando job ${job.id} (Book: ${job.book_id})`);
-            startPipeline(job.user_id, job.book_id, job.id).catch(e => {
-                console.error(`[JOBS] Error al re-encolar ${job.id}:`, e.message);
-            });
+            startPipeline(job.user_id, job.book_id, job.id).catch(() => {});
         }
-        
-        console.log("[JOBS] ✅ Proceso de recovery finalizado.");
-    } catch (err) { console.error("[JOBS] ❌ Error FATAL en recovery:", err.message); }
+    } catch (err) { console.error("[JOBS] Recovery error:", err.message); }
 }
 
 async function initServer() {
-    console.log("[Init] 🚀 Iniciando v1.0.33-hardened-migration...");
+    console.log("[Init] 🚀 Iniciando v1.0.34-shield-final-repair...");
     try {
         await runMigrations(db);
-        console.log("[Init] Migraciones OK.");
         await recoverPendingJobs();
         app.listen(PORT, () => {
-            console.log(`🚀 JDOCMUNCH Hardened v1.0.33-hardened-migration listening on port ${PORT}`);
+            console.log(\`🚀 JDOCMUNCH Hardened v1.0.34-shield-final-repair listening on port \${PORT}\`);
         });
     } catch (err) {
-        console.error("❌ Fallo crítico:", err);
+        console.error("❌ Fatal:", err);
         process.exit(1);
     }
 }
