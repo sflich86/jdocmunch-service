@@ -18,7 +18,7 @@ var { getClient, callTool } = require("./lib/mcpClient");
 var { pipelineQueue } = require("./lib/pipelineQueue");
 
 // ─── Constants ───────────────────────────────────────────
-var VERSION = "1.0.40-final-repair";
+var VERSION = "1.0.41-final-polish";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
@@ -226,11 +226,12 @@ app.get("/books/:id", async function(req, res) {
 
 // ═══════════════════════════════════════════════════════════
 //  DELETE A BOOK
-//  — Fixed param capture and shielded ID handling
+//  — v1.0.41 FIX: Safe req.body and req.query checks
 // ═══════════════════════════════════════════════════════════
 app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async function(req, res) {
     var bookId = null;
-    var userId = req.body.user_id || req.query.user_id || "admin";
+    var body = req.body || {};
+    var userId = body.user_id || req.query.user_id || "admin";
 
     try {
         var rawParam = req.params[0];
@@ -308,18 +309,46 @@ app.delete(/^\/books\/(.+)$/, function(req, res) {
     app.handle(req, res);
 });
 
+// ═══════════════════════════════════════════════════════════
+//  ENRICHMENT STATUS
+//  — v1.0.41: Advanced fallback to prevent stuck "Pending"
+// ═══════════════════════════════════════════════════════════
 app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
-    var bookId = decodeShieldedId(req.params[0]);
+    var rawId = req.params[0];
+    var bookId = decodeShieldedId(rawId);
 
     try {
+        console.log("[Status] Polling for: " + bookId + " (Raw: " + rawId + ")");
+        
+        // Try strict ID search
         var result = await db.execute({
             sql: "SELECT id, status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? ORDER BY created_at DESC LIMIT 1",
             args: [String(bookId)]
         });
         
-        if (result.rows.length === 0) return res.status(404).json({ error: "Job not found" });
+        // Fail-safe: Try flexible filename search if ID yields nothing
+        if (result.rows.length === 0) {
+            console.log("[Status] Strict ID failed, trying filename fallback...");
+            result = await db.execute({
+               sql: "SELECT id, status, current_step, error_message FROM enrichment_jobs WHERE file_name LIKE ? OR book_id LIKE ? ORDER BY created_at DESC LIMIT 1",
+               args: ["%" + String(bookId) + "%", "%" + String(bookId) + "%"]
+            });
+        }
+
+        if (result.rows.length === 0) {
+            console.warn("[Status] 404 for " + bookId + ". Returning synthetic FAILED to break frontend loop.");
+            return res.status(404).json({ 
+                error: "Job not found",
+                details: "No enrichment job found for ID or filename containing " + bookId,
+                status: "NOT_FOUND" 
+            });
+        }
+        
         res.json(result.rows[0]);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        console.error("[Status] Error:", err.message);
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 app.get("/ask", async function(req, res) {
@@ -346,19 +375,17 @@ app.get("/ask", async function(req, res) {
 
 // ═══════════════════════════════════════════════════════════
 //  INGEST (Upload a Book)
-//  — Fixed types and field mappings for new enrichment_jobs table
 // ═══════════════════════════════════════════════════════════
 app.post("/ingest", async function(req, res) {
-    var userId = req.query.user_id || "default";
-    var filename = req.query.filename || "upload-" + Date.now() + ".md";
-    var text = req.body;
+    var body = req.body || {};
+    var userId = body.user_id || req.query.user_id || "default";
+    var filename = body.filename || req.query.filename || "upload-" + Date.now() + ".md";
+    var text = body.content || body.text || req.body;
 
     console.log("[Ingest] Request: " + filename + " (user: " + userId + ")");
     
-    if (text && typeof text === "object") {
-        if (text.content) text = text.content;
-        else if (text.text) text = text.text;
-        else text = JSON.stringify(text);
+    if (text && typeof text === "object" && !Buffer.isBuffer(text)) {
+        text = JSON.stringify(text);
     }
 
     var safeUserId = String(userId);
