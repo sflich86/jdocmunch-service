@@ -1,47 +1,49 @@
-require('dotenv').config();
-const express = require('express');
-console.log("----------------------------------------------------------------");
-console.log("JDOCMUNCH STARTING - VERSION: 1.0.38-emergency-reset");
-console.log("----------------------------------------------------------------");
-const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
-const bodyParser = require("body-parser");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+// ─── LINE 1: ENV MUST LOAD BEFORE ANYTHING ELSE ─────────
+require("dotenv").config();
 
-// Modular Imports
-const { keyManager } = require("./lib/keyManager");
-const { startPipeline } = require("./lib/pipeline");
-const { db } = require("./lib/db");
-const { runMigrations } = require("./lib/migrations");
-const { callGemini } = require("./lib/geminiCaller");
-const { getClient, callTool } = require("./lib/mcpClient");
-const { pipelineQueue } = require("./lib/pipelineQueue");
+var express = require("express");
+var cors = require("cors");
+var path = require("path");
+var fs = require("fs");
+var crypto = require("crypto");
+var bodyParser = require("body-parser");
+var { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const app = express();
+var { keyManager } = require("./lib/keyManager");
+var { startPipeline } = require("./lib/pipeline");
+var { db } = require("./lib/db");
+var { runMigrations } = require("./lib/migrations");
+var { callGemini } = require("./lib/geminiCaller");
+var { getClient, callTool } = require("./lib/mcpClient");
+var { pipelineQueue } = require("./lib/pipelineQueue");
+
+// ─── Constants ───────────────────────────────────────────
+var VERSION = "1.0.40-final-repair";
+var PORT = process.env.PORT || 3000;
+var BOOKS_DIR = path.join(__dirname, "books");
+
+// ─── Express App ─────────────────────────────────────────
+var app = express();
 app.use(cors());
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.text({ type: 'text/*', limit: '50mb' }));
+app.use(bodyParser.json({ limit: "50mb" }));
+app.use(bodyParser.text({ type: "text/*", limit: "50mb" }));
 
-// Trace Logging & Double Shield Decoding Middleware
-const traceLogs = [];
-app.use((req, res, next) => {
-    // [Double Shield] Decodificacion manual de IDs con puntos
-    if (req.url.indexOf('__DOT__') !== -1) {
-        const oldUrl = req.url;
-        req.url = req.url.split('__DOT__').join('.');
-        if (req.path.indexOf('__DOT__') !== -1) {
-            req.path = req.path.split('__DOT__').join('.');
+var traceLogs = [];
+app.use(function(req, res, next) {
+    if (req.url.indexOf("__DOT__") !== -1) {
+        var oldUrl = req.url;
+        req.url = req.url.split("__DOT__").join(".");
+        if (req.path.indexOf("__DOT__") !== -1) {
+            req.path = req.path.split("__DOT__").join(".");
         }
         console.log("[Shield] Decoded: " + oldUrl + " -> " + req.url);
     }
 
-    const logEntry = {
+    var logEntry = {
         timestamp: new Date().toISOString(),
         method: req.method,
         url: req.url,
-        ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+        ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress
     };
     traceLogs.push(logEntry);
     if (traceLogs.length > 50) traceLogs.shift();
@@ -50,47 +52,55 @@ app.use((req, res, next) => {
     next();
 });
 
-const PORT = process.env.PORT || 3000;
-const BOOKS_DIR = path.join(__dirname, 'books');
+app.use(express.static(path.join(__dirname, "public")));
 
-app.use(express.static(path.join(__dirname, 'public')));
+// ═══════════════════════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════════════════════
 
-// Utils
 function getUserBooksDir(userId) {
-    const id = userId || 'default';
-    const dir = path.join(BOOKS_DIR, id);
+    var id = userId || "default";
+    var dir = path.join(BOOKS_DIR, id);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     return dir;
 }
 
 function getUserRepo(userId) {
-    const id = userId || 'default';
+    var id = userId || "default";
     return "local/" + id;
 }
 
+function decodeShieldedId(raw) {
+    if (!raw) return null;
+    var decoded = decodeURIComponent(raw);
+    decoded = decoded.replace(/__DOT__/g, ".");
+    return decoded;
+}
+
 async function performSearch(q, userId) {
-    const userRepo = getUserRepo(userId);
+    var userRepo = getUserRepo(userId);
     try {
-        const result = await callTool("search_sections", { 
+        var result = await callTool("search_sections", { 
             repo: userRepo, 
             query: q, 
             max_results: 15, 
             min_score: 0.1 
         });
-        const data = JSON.parse(result.content[0].text);
+        var data = JSON.parse(result.content[0].text);
 
-        let chunks = [];
+        var chunks = [];
         if (data.results) {
-            for (const r of data.results) {
+            for (var i = 0; i < data.results.length; i++) {
+                var r = data.results[i];
                 try {
-                    const sec = await callTool("get_section", { repo: userRepo, section_id: r.id });
-                    const sData = JSON.parse(sec.content[0].text);
-                    const sectionId = sData.id || r.id;
+                    var sec = await callTool("get_section", { repo: userRepo, section_id: r.id });
+                    var sData = JSON.parse(sec.content[0].text);
+                    var sectionId = sData.id || r.id;
                     
                     chunks.push({
                         id: sectionId,
                         content: sData.content,
-                        source_file: sData.source_file || 'libro',
+                        source_file: sData.source_file || "libro",
                         score: r.score
                     });
                 } catch (e) {}
@@ -103,27 +113,30 @@ async function performSearch(q, userId) {
     }
 }
 
-// Public API Endpoints
-app.get('/api/jdocmunch/health', (req, res) => {
+// ═══════════════════════════════════════════════════════════
+//  ROUTES
+// ═══════════════════════════════════════════════════════════
+
+app.get("/api/jdocmunch/health", function(req, res) {
     res.json({ 
-        status: 'ok', 
-        version: '1.0.38-emergency-reset', 
+        status: "ok", 
+        version: VERSION, 
         mcpConnected: true,
         tiers: keyManager.getStatus()
     });
 });
 
-app.get('/api/jdocmunch/status', (req, res) => {
+app.get("/api/jdocmunch/status", function(req, res) {
     res.json(pipelineQueue.getStatus());
 });
 
-app.get('/api/jdocmunch/jobs/:jobId/logs', async (req, res) => {
-    const { jobId } = req.params;
-    const limit = parseInt(req.query.limit) || 100;
-    const offset = parseInt(req.query.offset) || 0;
+app.get("/api/jdocmunch/jobs/:jobId/logs", async function(req, res) {
+    var jobId = req.params.jobId;
+    var limit = parseInt(req.query.limit) || 100;
+    var offset = parseInt(req.query.offset) || 0;
 
     try {
-        const result = await db.execute({
+        var result = await db.execute({
             sql: "SELECT stream, message, created_at FROM job_logs WHERE job_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?",
             args: [jobId, limit, offset]
         });
@@ -133,15 +146,14 @@ app.get('/api/jdocmunch/jobs/:jobId/logs', async (req, res) => {
     }
 });
 
-// Diagnostic Route
-app.get('/api/jdocmunch/debug/schema', async (req, res) => {
+app.get("/api/jdocmunch/debug/schema", async function(req, res) {
     try {
-        const tables = ['books', 'enrichment_jobs', 'book_raw', 'book_dna', 'book_structure', 'job_logs'];
-        const schema = {};
-        for (let i = 0; i < tables.length; i++) {
-            const table = tables[i];
-            const tableInfo = await db.execute("PRAGMA table_info(" + table + ")");
-            const sampleData = await db.execute("SELECT * FROM " + table + " LIMIT 1");
+        var tables = ["books", "enrichment_jobs", "book_raw", "book_dna", "book_structure", "job_logs"];
+        var schema = {};
+        for (var i = 0; i < tables.length; i++) {
+            var table = tables[i];
+            var tableInfo = await db.execute("PRAGMA table_info(" + table + ")");
+            var sampleData = await db.execute("SELECT * FROM " + table + " LIMIT 1");
             schema[table] = {
                 columns: tableInfo.rows,
                 sample: sampleData.rows[0] || "EMPTY"
@@ -153,10 +165,9 @@ app.get('/api/jdocmunch/debug/schema', async (req, res) => {
     }
 });
 
-// Job Recovery Route
-app.post('/api/jdocmunch/jobs/reset-all', async (req, res) => {
+app.post("/api/jdocmunch/jobs/reset-all", async function(req, res) {
     try {
-        const result = await db.execute({
+        var result = await db.execute({
             sql: "UPDATE enrichment_jobs SET status = 'PENDING', error_message = NULL WHERE status IN ('FAILED', 'PROCESSING', 'RETRY')",
             args: []
         });
@@ -167,24 +178,23 @@ app.post('/api/jdocmunch/jobs/reset-all', async (req, res) => {
     }
 });
 
-// Alias for legacy health check
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.0.38-emergency-reset', notice: 'Use /api/jdocmunch/health' });
+app.get("/health", function(req, res) {
+    res.json({ status: "ok", version: VERSION, notice: "Use /api/jdocmunch/health" });
 });
 
-app.get('/debug/logs', (req, res) => {
-    let logsHtml = "";
-    for (let i = traceLogs.length - 1; i >= 0; i--) {
-        const l = traceLogs[i];
+app.get("/debug/logs", function(req, res) {
+    var logsHtml = "";
+    for (var i = traceLogs.length - 1; i >= 0; i--) {
+        var l = traceLogs[i];
         logsHtml += '<div class="entry"><span class="timestamp">[' + l.timestamp + ']</span><span class="method">' + l.method + '</span><span class="url">' + l.url + '</span></div>';
     }
-    const html = '<!DOCTYPE html><html><head><title>Logs</title><style>body { font-family: monospace; background: #1a1a1a; color: #00ff00; padding: 20px; } .entry { border-bottom: 1px solid #333; padding: 5px 0; } .method { color: #ff00ff; font-weight: bold; } .url { color: #00ffff; } .timestamp { color: #888; margin-right: 10px; }</style><meta http-equiv="refresh" content="5"></head><body><h1>Live Trace Logs (Last 50)</h1><p>Version: 1.0.38-emergency-reset</p><div id="logs">' + logsHtml + '</div></body></html>';
+    var html = '<!DOCTYPE html><html><head><title>Logs</title><style>body { font-family: monospace; background: #1a1a1a; color: #00ff00; padding: 20px; } .entry { border-bottom: 1px solid #333; padding: 5px 0; } .method { color: #ff00ff; font-weight: bold; } .url { color: #00ffff; } .timestamp { color: #888; margin-right: 10px; }</style><meta http-equiv="refresh" content="5"></head><body><h1>Live Trace Logs (Last 50)</h1><p>Version: ' + VERSION + '</p><div id="logs">' + logsHtml + '</div></body></html>';
     res.send(html);
 });
 
-app.get('/books', async (req, res) => {
+app.get("/books", async function(req, res) {
     try {
-        const result = await db.execute({
+        var result = await db.execute({
             sql: "SELECT id, title, author, index_status, created_at FROM books ORDER BY created_at DESC",
             args: []
         });
@@ -192,10 +202,20 @@ app.get('/books', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/books/:id', async (req, res) => {
-    const { id } = req.params;
+app.get("/api/jdocmunch/books", async function(req, res) {
     try {
-        const result = await db.execute({
+        var result = await db.execute({
+            sql: "SELECT id, title, author, index_status, created_at FROM books ORDER BY created_at DESC",
+            args: []
+        });
+        res.json({ books: result.rows, total: result.rows.length });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/books/:id", async function(req, res) {
+    var id = req.params.id;
+    try {
+        var result = await db.execute({
             sql: "SELECT content FROM book_raw WHERE book_id = ?",
             args: [id]
         });
@@ -204,94 +224,97 @@ app.get('/books/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async (req, res) => {
-    let id = req.params[0];
-    const userId = req.body.user_id || req.query.user_id || 'admin';
-    
-    if (id.indexOf('?') !== -1) id = id.split('?')[0];
-    id = id.replace(/__DOT__/g, '.');
+// ═══════════════════════════════════════════════════════════
+//  DELETE A BOOK
+//  — Fixed param capture and shielded ID handling
+// ═══════════════════════════════════════════════════════════
+app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async function(req, res) {
+    var bookId = null;
+    var userId = req.body.user_id || req.query.user_id || "admin";
 
-    console.log("[Server] DELETE request for: " + id + " (User: " + userId + ")");
-    
     try {
-        const tables = [
-            { name: 'enrichment_jobs', sql: "DELETE FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ?" },
-            { name: 'book_raw', sql: "DELETE FROM book_raw WHERE book_id = ?" },
-            { name: 'book_dna', sql: "DELETE FROM book_dna WHERE book_id = ?" },
-            { name: 'book_structure', sql: "DELETE FROM book_structure WHERE book_id = ?" },
-            { name: 'books', sql: "DELETE FROM books WHERE id = ? OR title = ? OR id LIKE ?" }
+        var rawParam = req.params[0];
+        bookId = decodeShieldedId(rawParam);
+
+        console.log("[DELETE] Raw: " + rawParam + " | Decoded: " + bookId + " (User: " + userId + ")");
+
+        if (!bookId || bookId === "undefined" || bookId === "null") {
+            return res.status(400).json({ error: "Invalid book ID", received: rawParam });
+        }
+
+        var idStr = String(bookId);
+
+        var tables = [
+            { name: "enrichment_jobs", sql: "DELETE FROM enrichment_jobs WHERE book_id = ?" },
+            { name: "book_raw", sql: "DELETE FROM book_raw WHERE book_id = ?" },
+            { name: "book_dna", sql: "DELETE FROM book_dna WHERE book_id = ?" },
+            { name: "book_structure", sql: "DELETE FROM book_structure WHERE book_id = ?" },
+            { name: "books", sql: "DELETE FROM books WHERE id = ?" }
         ];
 
-        let resultsHits = {};
-        for (let i = 0; i < tables.length; i++) {
-            const table = tables[i];
+        var resultsHits = {};
+        for (var i = 0; i < tables.length; i++) {
+            var table = tables[i];
             try {
-                const args = table.name === 'books' 
-                    ? [String(id), id.replace(/_/g, " "), "%" + id.replace(/\./g, '_') + "%"]
-                    : (table.name === 'enrichment_jobs' ? [String(id), "%" + id + "%"] : [String(id)]);
-                
-                const result = await db.execute({ sql: table.sql, args: args });
+                var result = await db.execute({ sql: table.sql, args: [idStr] });
                 resultsHits[table.name] = result.rowsAffected;
-                console.log("[Server][DELETE] Table " + table.name + " affected: " + result.rowsAffected);
+                console.log("[DELETE] Table " + table.name + " affected: " + result.rowsAffected);
             } catch (innerErr) {
-                console.error("[Server][DELETE] Error in " + table.name + ": " + innerErr.message);
+                console.error("[DELETE] Error in " + table.name + ": " + innerErr.message);
                 resultsHits[table.name] = "ERROR: " + innerErr.message;
             }
         }
 
-        const userDir = getUserBooksDir(userId);
-        let fileDeleted = false;
+        // Cleanup local files
         try {
+            var userDir = getUserBooksDir(userId);
             if (fs.existsSync(userDir)) {
-              const files = fs.readdirSync(userDir);
-              const cleanId = id.toLowerCase().replace(/[^a-z0-9]/g, '');
-              const targetFile = files.find(f => {
-                  const cleanF = f.toLowerCase().replace(/[^a-z0-9]/g, '');
-                  return cleanF.indexOf(cleanId) !== -1 || f.indexOf(id) !== -1;
-              });
-
-              if (targetFile) {
-                  const fullPath = path.join(userDir, targetFile);
-                  fs.unlinkSync(fullPath);
-                  fileDeleted = true;
-                  console.log("[Server] File deleted: " + targetFile);
+              var files = fs.readdirSync(userDir);
+              var cleanId = idStr.toLowerCase().replace(/[^a-z0-9]/g, "");
+              for (var j = 0; j < files.length; j++) {
+                  var f = files[j];
+                  var cleanF = f.toLowerCase().replace(/[^a-z0-9]/g, "");
+                  if (cleanF.indexOf(cleanId) !== -1 || f.indexOf(idStr) !== -1) {
+                      fs.unlinkSync(path.join(userDir, f));
+                      console.log("[DELETE] File removed: " + f);
+                  }
               }
             }
         } catch (fsErr) {
-            console.warn("[Server] FS Delete warning: " + fsErr.message);
+            console.warn("[DELETE] FS cleanup warning: " + fsErr.message);
         }
 
+        // Vector index cleanup (Non-fatal)
         try {
-            await callTool("delete_index", { repo: getUserRepo(userId) }).catch(() => {});
-        } catch (e) {}
+            await callTool("delete_index", { repo: getUserRepo(userId) });
+            console.log("[DELETE] Vector index cleanup OK");
+        } catch (e) {
+            console.warn("[DELETE] Vector index cleanup non-fatal error: " + e.message);
+        }
 
         res.json({ 
             success: true, 
-            message: "Book " + id + " deleted.",
-            db_affected: resultsHits,
-            file_deleted: fileDeleted
+            deleted: idStr,
+            details: resultsHits
         });
     } catch (err) {
-        console.error("Delete fatal: ", err);
-        res.status(500).json({ error: err.message });
+        console.error("[DELETE] Fatal:", err);
+        res.status(500).json({ error: err.message, stack: err.stack });
     }
 });
 
-app.delete(/^\/books\/(.+)$/, async (req, res) => {
-    req.url = '/api/jdocmunch' + req.url;
+app.delete(/^\/books\/(.+)$/, function(req, res) {
+    req.url = "/api/jdocmunch" + req.url;
     app.handle(req, res);
 });
 
-app.get(/^\/enrichment-status\/(.+)$/, async (req, res) => {
-    let bookId = req.params[0];
-    if (bookId.indexOf('?') !== -1) bookId = bookId.split('?')[0];
-    bookId = bookId.replace(/__DOT__/g, '.');
+app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
+    var bookId = decodeShieldedId(req.params[0]);
 
     try {
-        const searchPattern = "%" + bookId.replace(/_/g, '%') + "%";
-        const result = await db.execute({
-            sql: "SELECT id, status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ? OR file_name LIKE ? ORDER BY created_at DESC LIMIT 1",
-            args: [bookId, "%" + bookId + "%", searchPattern]
+        var result = await db.execute({
+            sql: "SELECT id, status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? ORDER BY created_at DESC LIMIT 1",
+            args: [String(bookId)]
         });
         
         if (result.rows.length === 0) return res.status(404).json({ error: "Job not found" });
@@ -299,108 +322,120 @@ app.get(/^\/enrichment-status\/(.+)$/, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/ask', async (req, res) => {
-    const { q, user_id } = req.query;
+app.get("/ask", async function(req, res) {
+    var q = req.query.q;
+    var user_id = req.query.user_id;
     if (!q) return res.status(400).json({ error: "Missing parameters" });
 
     try {
-        const { chunks } = await performSearch(q, user_id);
-        const contextText = chunks.length > 0 ? chunks.map(c => "[" + c.source_file + "]: " + c.content).join("\n\n") : "No context.";
-        const prompt = "Answer based only on the context.\nContext:\n" + contextText + "\n\nQuestion: " + q;
+        var sRes = await performSearch(q, user_id);
+        var chunks = sRes.chunks;
+        var contextText = chunks.length > 0 ? chunks.map(function(c) { return "[" + c.source_file + "]: " + c.content; }).join("\n\n") : "No context.";
+        var prompt = "Answer based only on the context.\nContext:\n" + contextText + "\n\nQuestion: " + q;
         
-        const answer = await callGemini(async (apiKey) => {
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-            const result = await model.generateContent(prompt);
-            return result.response.text();
-        }, { tier: 'batch', description: 'ask' });
+        var answer = await callGemini(async function(apiKey) {
+            var gAI = new GoogleGenerativeAI(apiKey);
+            var model = gAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+            var gResult = await model.generateContent(prompt);
+            return gResult.response.text();
+        }, { tier: "batch", description: "ask" });
 
         res.json({ answer: answer || "No response", context_used: chunks.length + " chunks" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/ingest', async (req, res) => {
-    const userId = req.query.user_id || 'default';
-    const filename = req.query.filename || "upload-" + Date.now() + ".md";
-    let text = req.body;
+// ═══════════════════════════════════════════════════════════
+//  INGEST (Upload a Book)
+//  — Fixed types and field mappings for new enrichment_jobs table
+// ═══════════════════════════════════════════════════════════
+app.post("/ingest", async function(req, res) {
+    var userId = req.query.user_id || "default";
+    var filename = req.query.filename || "upload-" + Date.now() + ".md";
+    var text = req.body;
 
     console.log("[Ingest] Request: " + filename + " (user: " + userId + ")");
     
-    if (text && typeof text === 'object') {
+    if (text && typeof text === "object") {
         if (text.content) text = text.content;
         else if (text.text) text = text.text;
         else text = JSON.stringify(text);
     }
 
-    const safeUserId = String(userId);
-    const safeFilename = String(filename);
-    const safeText = String(text || '');
-
-    console.log("[Ingest][DEBUG] Params: user=" + safeUserId + ", filename=" + safeFilename + ", len=" + safeText.length);
+    var safeUserId = String(userId);
+    var safeFilename = String(filename);
+    var safeText = String(text || "");
 
     try {
         if (!safeText || safeText.length === 0) return res.status(400).json({ error: "Empty content" });
 
-        const bookId = crypto.randomUUID();
-        
-        try {
-            await db.execute({
-                sql: "INSERT INTO books (id, user_id, title, author, index_status) VALUES (?, ?, ?, ?, ?)",
-                args: [bookId, safeUserId, safeFilename.replace(/\.[^/.]+$/, ""), "Unknown", "pending"]
-            });
-        } catch (e1) { throw new Error("Step 1 (books) Error: " + e1.message); }
+        var bookId = crypto.randomUUID();
+        var jobId = crypto.randomUUID();
 
-        try {
-            await db.execute({
-                sql: "INSERT INTO book_raw (book_id, content) VALUES (?, ?)",
-                args: [bookId, safeText]
-            });
-        } catch (e2) { throw new Error("Step 2 (raw) Error: " + e2.message); }
+        // Step 1: Books
+        await db.execute({
+            sql: "INSERT INTO books (id, user_id, title, author, filename, index_status) VALUES (?, ?, ?, ?, ?, ?)",
+            args: [
+                String(bookId), 
+                safeUserId, 
+                safeFilename.replace(/\.[^/.]+$/, ""), 
+                "Unknown", 
+                safeFilename, 
+                "pending"
+            ]
+        });
 
-        try {
-            const jobId = crypto.randomUUID();
-            await db.execute({
-                sql: "INSERT INTO enrichment_jobs (id, book_id, user_id, file_name, status) VALUES (?, ?, ?, ?, 'PENDING')",
-                args: [jobId, bookId, safeUserId, safeFilename]
-            });
+        // Step 2: Raw
+        await db.execute({
+            sql: "INSERT INTO book_raw (id, book_id, content) VALUES (?, ?, ?)",
+            args: [crypto.randomUUID(), String(bookId), safeText]
+        });
 
-            startPipeline(userId, bookId, jobId);
-            res.status(200).json({ success: true, bookId: bookId, jobId: jobId });
-        } catch (e3) { throw new Error("Step 3 (job) Error: " + e3.message); }
+        // Step 3: Enrichment Job
+        await db.execute({
+            sql: "INSERT INTO enrichment_jobs (id, book_id, user_id, file_name, status, job_type) VALUES (?, ?, ?, ?, 'PENDING', 'full')",
+            args: [String(jobId), String(bookId), safeUserId, safeFilename]
+        });
+
+        startPipeline(userId, bookId, jobId);
+        res.status(200).json({ success: true, bookId: bookId, jobId: jobId });
+
     } catch (err) {
         console.error("[Ingest] Fatal: " + err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, stack: err.stack });
     }
 });
 
-// Global Error Handler
-app.use((err, req, res, next) => {
+// ═══════════════════════════════════════════════════════════
+//  GLOBAL ERROR HANDLER
+// ═══════════════════════════════════════════════════════════
+app.use(function(err, req, res, next) {
     console.error("[Global Error]", err);
     res.status(500).json({ 
         error: "Internal Error", 
-        message: err.message, 
-        path: req.path 
+        message: err.message,
+        path: req.path,
+        stack: err.stack
     });
 });
 
 async function recoverPendingJobs() {
     console.log("[JOBS] Recovery start...");
     try {
-        const query = "SELECT id, book_id, user_id, status FROM enrichment_jobs WHERE status IN ('PENDING', 'PROCESSING', 'RETRY')";
-        const pending = await db.execute(query);
-        for (let i = 0; i < pending.rows.length; i++) {
-            const job = pending.rows[i];
-            startPipeline(job.user_id, job.book_id, job.id).catch(() => {});
+        var query = "SELECT id, book_id, user_id, status FROM enrichment_jobs WHERE status IN ('PENDING', 'PROCESSING', 'RETRY')";
+        var pending = await db.execute(query);
+        for (var i = 0; i < pending.rows.length; i++) {
+            var job = pending.rows[i];
+            startPipeline(job.user_id, job.book_id, job.id).catch(function() {});
         }
     } catch (err) { console.error("[JOBS] Error:", err.message); }
 }
 
 async function initServer() {
-    console.log("[Init] Starting v1.0.38-emergency-reset...");
+    console.log("[Init] Starting VERSION " + VERSION + "...");
     try {
         await runMigrations(db);
         await recoverPendingJobs();
-        app.listen(PORT, () => {
+        app.listen(PORT, function() {
             console.log("JDOCMUNCH listening on port " + PORT);
         });
     } catch (err) {
