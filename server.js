@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const bodyParser = require("body-parser");
-const { GoogleGenAI } = require("@google/genai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 // Modular Imports
 const { keyManager } = require("./lib/keyManager");
@@ -30,6 +30,10 @@ app.use((req, res, next) => {
     if (req.url.includes('__DOT__')) {
         const oldUrl = req.url;
         req.url = req.url.split('__DOT__').join('.');
+        // Also update req.path for routing consistency
+        if (req.path.includes('__DOT__')) {
+            req.path = req.path.split('__DOT__').join('.');
+        }
         console.log(`[Shield] 🛡️ Decoded URL: ${oldUrl} -> ${req.url}`);
     }
 
@@ -131,7 +135,7 @@ async function performSearch(q, userId) {
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        version: '1.0.27', 
+        version: '1.0.28', 
         mcp_connected: isConnected,
         tiers: keyManager.getStatus()
     });
@@ -154,7 +158,7 @@ app.get('/debug/logs', (req, res) => {
         </head>
         <body>
             <h1>📡 Live Trace Logs (Last 50)</h1>
-            <p>Version: 1.0.27 | Refrescando cada 5 segundos...</p>
+            <p>Version: 1.0.28 | Refrescando cada 5 segundos...</p>
             <div id="logs">
                 ${traceLogs.slice().reverse().map(l => `
                     <div class="entry">
@@ -201,6 +205,9 @@ app.delete(/^\/books\/(.+)$/, async (req, res) => {
     // Quick fix for regex capturing query params if req.url was modified
     if (id.includes('?')) id = id.split('?')[0];
 
+    // Explicit Shield decoding if middleware missed it in params
+    id = id.replace(/__DOT__/g, '.');
+
     console.log(`[Server] 🗑️ Intentando eliminar libro con ID: ${id} (Usuario: ${userId})`);
     
     try {
@@ -208,7 +215,7 @@ app.delete(/^\/books\/(.+)$/, async (req, res) => {
         // Intentamos borrar por ID exacto y también por "posible ID legacy" si contiene guiones/puntos
         const delResult = await db.execute({ 
             sql: "DELETE FROM books WHERE id = ? OR title = ? OR id LIKE ?", 
-            args: [id, id.replace(/_/g, " "), `%${id}%`] 
+            args: [id, id.replace(/_/g, " "), `%${id.replace(/\./g, '_')}%`] 
         });
         console.log(`[Server] Eliminar de DB status:`, delResult.rowsAffected);
         
@@ -266,9 +273,12 @@ app.get(/^\/enrichment-status\/(.+)$/, async (req, res) => {
     let bookId = req.params[0];
     if (bookId.includes('?')) bookId = bookId.split('?')[0];
     
+    // Hardened Shield decoding
+    bookId = bookId.replace(/__DOT__/g, '.');
+
     try {
         // Normalización para búsqueda legacy (ej: Querida_yo... vs Querida yo: ...)
-        const searchPattern = `%${bookId.replace(/__DOT__/g, '.').replace(/_/g, '%')}%`;
+        const searchPattern = `%${bookId.replace(/_/g, '%')}%`;
         
         const result = await db.execute({
             sql: "SELECT status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ? OR file_name LIKE ? ORDER BY created_at DESC LIMIT 1",
@@ -290,13 +300,10 @@ app.get('/ask', async (req, res) => {
         const prompt = `Responde basándote solo en el contexto.\nContexto:\n${contextText}\n\nPregunta: ${q}`;
         
         const answer = await callGemini(async (apiKey) => {
-            const { createClient } = require("@google/genai");
-            const client = createClient({ apiKey, platform: 'google' });
-            const result = await client.models.generateContent({
-                model: 'gemini-2.0-flash-exp',
-                contents: [{ role: 'user', parts: [{ text: prompt }] }]
-            });
-            return result.text;
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+            const result = await model.generateContent(prompt);
+            return result.response.text();
         }, { tier: 'batch', description: 'ask' });
 
         res.json({ answer: answer || "Sin respuesta", context_used: chunks.length + " tramos" });
@@ -363,7 +370,7 @@ async function initServer() {
         await runMigrations(db);
         await recoverPendingJobs();
         app.listen(PORT, () => {
-            console.log(`🚀 JDOCMUNCH Hardened v1.0.26 listening on port ${PORT}`);
+            console.log(`🚀 JDOCMUNCH Hardened v1.0.28 listening on port ${PORT}`);
         });
     } catch (err) {
         console.error("❌ Fallo crítico:", err);

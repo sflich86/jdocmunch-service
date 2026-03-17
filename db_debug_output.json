@@ -1,0 +1,16 @@
+{
+  "books": [
+    {
+      "id": "Querida_yo_tenemos_que_hablar.md",
+      "title": "Querida yo, tenemos que hablar",
+      "index_status": "ready"
+    }
+  ],
+  "jobs": [
+    {
+      "id": 1,
+      "book_id": "Querida_yo_tenemos_que_hablar.md",
+      "status": "FAILED"
+    }
+  ]
+}
