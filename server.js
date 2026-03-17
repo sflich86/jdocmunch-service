@@ -195,28 +195,47 @@ app.get('/books/:id', async (req, res) => {
 });
 
 app.delete(/^\/books\/(.+)$/, async (req, res) => {
-    const id = req.params[0];
+    let id = req.params[0];
     const userId = req.body.user_id || req.query.user_id || 'admin';
+    
+    // Quick fix for regex capturing query params if req.url was modified
+    if (id.includes('?')) id = id.split('?')[0];
+
     console.log(`[Server] 🗑️ Intentando eliminar libro con ID: ${id} (Usuario: ${userId})`);
+    
     try {
         // 1. Eliminar de Turso (Fase 3 Resilience)
-        const delResult = await db.execute({ sql: "DELETE FROM books WHERE id = ?", args: [id] });
+        // Intentamos borrar por ID exacto y también por "posible ID legacy" si contiene guiones/puntos
+        const delResult = await db.execute({ 
+            sql: "DELETE FROM books WHERE id = ? OR title = ? OR id LIKE ?", 
+            args: [id, id.replace(/_/g, " "), `%${id}%`] 
+        });
         console.log(`[Server] Eliminar de DB status:`, delResult.rowsAffected);
         
-        // También intentar borrar por si el ID en jobs es diferente (legacy cleanup)
+        // Limpiar jobs y tablas relacionadas
         await db.execute({ sql: "DELETE FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ?", args: [id, `%${id}%`] });
-        
         await db.execute({ sql: "DELETE FROM book_raw WHERE book_id = ?", args: [id] });
         await db.execute({ sql: "DELETE FROM book_dna WHERE book_id = ?", args: [id] });
         await db.execute({ sql: "DELETE FROM book_structure WHERE book_id = ?", args: [id] });
 
-        // 2. Eliminar del sistema de archivos si existe
+        // 2. Eliminar del sistema de archivos con búsqueda difusa
         const userDir = getUserBooksDir(userId);
+        let fileDeleted = false;
         if (fs.existsSync(userDir)) {
           const files = fs.readdirSync(userDir);
-          const targetFile = files.find(f => f.startsWith(id) || f.includes(id));
+          // Normalización para comparación: quitar extensiones y caracteres especiales
+          const cleanId = id.toLowerCase().replace(/[^a-z0-9]/g, '');
+          
+          const targetFile = files.find(f => {
+              const cleanF = f.toLowerCase().replace(/[^a-z0-9]/g, '');
+              return cleanF.includes(cleanId) || f.includes(id);
+          });
+
           if (targetFile) {
-              fs.unlinkSync(path.join(userDir, targetFile));
+              const fullPath = path.join(userDir, targetFile);
+              fs.unlinkSync(fullPath);
+              fileDeleted = true;
+              console.log(`[Server] Archivo eliminado: ${targetFile}`);
           }
         }
 
@@ -231,7 +250,12 @@ app.delete(/^\/books\/(.+)$/, async (req, res) => {
             console.warn("MCP Clean warning:", e.message);
         }
 
-        res.json({ success: true, message: `Libro ${id} eliminado correctamente.` });
+        res.json({ 
+            success: true, 
+            message: `Libro ${id} procesado para eliminación.`,
+            db_affected: delResult.rowsAffected,
+            file_deleted: fileDeleted
+        });
     } catch (err) {
         console.error("Delete failed:", err);
         res.status(500).json({ error: err.message });
@@ -239,13 +263,18 @@ app.delete(/^\/books\/(.+)$/, async (req, res) => {
 });
 
 app.get(/^\/enrichment-status\/(.+)$/, async (req, res) => {
-    const bookId = req.params[0];
+    let bookId = req.params[0];
+    if (bookId.includes('?')) bookId = bookId.split('?')[0];
+    
     try {
-        // Mejorar query para buscar por ID o por nombre de archivo (resiliencia legacy)
+        // Normalización para búsqueda legacy (ej: Querida_yo... vs Querida yo: ...)
+        const searchPattern = `%${bookId.replace(/__DOT__/g, '.').replace(/_/g, '%')}%`;
+        
         const result = await db.execute({
-            sql: "SELECT status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ? ORDER BY created_at DESC LIMIT 1",
-            args: [bookId, `%${bookId}%`]
+            sql: "SELECT status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ? OR file_name LIKE ? ORDER BY created_at DESC LIMIT 1",
+            args: [bookId, `%${bookId}%`, searchPattern]
         });
+        
         if (result.rows.length === 0) return res.status(404).json({ error: "Job no encontrado" });
         res.json(result.rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
