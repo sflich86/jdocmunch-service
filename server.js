@@ -29,7 +29,7 @@ app.use((req, res, next) => {
     // We replace __DOT__ with actual dots on the server
     if (req.url.includes('__DOT__')) {
         const oldUrl = req.url;
-        req.url = req.url.replace(/__DOT__/g, '.');
+        req.url = req.url.split('__DOT__').join('.');
         console.log(`[Shield] 🛡️ Decoded URL: ${oldUrl} -> ${req.url}`);
     }
 
