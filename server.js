@@ -137,7 +137,7 @@ app.get('/books/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/books/:id', async (req, res) => {
+app.delete('/books/:id([^/]+)', async (req, res) => {
     const { id } = req.params;
     const userId = req.body.user_id || req.query.user_id || 'admin';
     console.log(`[Server] 🗑️ Intentando eliminar libro con ID: ${id} (Usuario: ${userId})`);
@@ -145,20 +145,25 @@ app.delete('/books/:id', async (req, res) => {
         // 1. Eliminar de Turso (Fase 3 Resilience)
         const delResult = await db.execute({ sql: "DELETE FROM books WHERE id = ?", args: [id] });
         console.log(`[Server] Eliminar de DB status:`, delResult.rowsAffected);
+        
+        // También intentar borrar por si el ID en jobs es diferente (legacy cleanup)
+        await db.execute({ sql: "DELETE FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ?", args: [id, `%${id}%`] });
+        
         await db.execute({ sql: "DELETE FROM book_raw WHERE book_id = ?", args: [id] });
         await db.execute({ sql: "DELETE FROM book_dna WHERE book_id = ?", args: [id] });
         await db.execute({ sql: "DELETE FROM book_structure WHERE book_id = ?", args: [id] });
-        await db.execute({ sql: "DELETE FROM enrichment_jobs WHERE book_id = ?", args: [id] });
 
         // 2. Eliminar del sistema de archivos si existe
         const userDir = getUserBooksDir(userId);
-        const files = fs.readdirSync(userDir);
-        const targetFile = files.find(f => f.startsWith(id) || f.includes(id));
-        if (targetFile) {
-            fs.unlinkSync(path.join(userDir, targetFile));
+        if (fs.existsSync(userDir)) {
+          const files = fs.readdirSync(userDir);
+          const targetFile = files.find(f => f.startsWith(id) || f.includes(id));
+          if (targetFile) {
+              fs.unlinkSync(path.join(userDir, targetFile));
+          }
         }
 
-        // 3. Notificar a MCP para limpiar índices (Opcional pero recomendado)
+        // 3. Notificar a MCP para limpiar índices
         try {
             await connectClient();
             await client.callTool({ 
@@ -179,9 +184,10 @@ app.delete('/books/:id', async (req, res) => {
 app.get('/enrichment-status/:bookId', async (req, res) => {
     const { bookId } = req.params;
     try {
+        // Mejorar query para buscar por ID o por nombre de archivo (resiliencia legacy)
         const result = await db.execute({
-            sql: "SELECT status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? ORDER BY created_at DESC LIMIT 1",
-            args: [bookId]
+            sql: "SELECT status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? OR file_name LIKE ? ORDER BY created_at DESC LIMIT 1",
+            args: [bookId, `%${bookId}%`]
         });
         if (result.rows.length === 0) return res.status(404).json({ error: "Job no encontrado" });
         res.json(result.rows[0]);
