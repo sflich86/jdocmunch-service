@@ -382,6 +382,14 @@ app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
 
         if (result.rows.length === 0) {
             console.warn("[Status] 404 for " + bookId + ". Returning synthetic FAILED to break frontend loop.");
+            try {
+                await db.execute({
+                    sql: "UPDATE books SET index_status = 'error' WHERE (id = ? OR filename = ?) AND index_status = 'pending'",
+                    args: [String(bookId), String(bookId)]
+                });
+            } catch (healErr) {
+                console.error("[Status] Auto-heal failed:", healErr.message);
+            }
             return res.status(404).json({ 
                 error: "Job not found",
                 details: "No enrichment job found for ID or filename containing " + bookId,
