@@ -261,11 +261,11 @@ app.get("/books/:id", async function(req, res) {
     var id = req.params.id;
     try {
         var result = await db.execute({
-            sql: "SELECT content FROM book_raw WHERE book_id = ?",
+            sql: "SELECT content FROM book_raw WHERE book_id = ? ORDER BY chunk_index ASC",
             args: [id]
         });
         if (result.rows.length === 0) return res.status(404).json({ error: "Libro no encontrado" });
-        res.json({ id: id, content: result.rows[0].content });
+        res.json({ id: id, content: result.rows.map(r => r.content).join('') });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -445,12 +445,12 @@ app.post("/ingest", async function(req, res) {
     var safeFilename = String(filename);
     var safeText = String(text || "");
 
+    if (!safeText || safeText.length === 0) return res.status(400).json({ error: "Empty content" });
+
+    var bookId = crypto.randomUUID();
+    var jobId = crypto.randomUUID();
+
     try {
-        if (!safeText || safeText.length === 0) return res.status(400).json({ error: "Empty content" });
-
-        var bookId = crypto.randomUUID();
-        var jobId = crypto.randomUUID();
-
         // Step 1: Books
         await db.execute({
             sql: "INSERT INTO books (id, user_id, title, author, filename, index_status) VALUES (?, ?, ?, ?, ?, ?)",
@@ -464,11 +464,17 @@ app.post("/ingest", async function(req, res) {
             ]
         });
 
-        // Step 2: Raw
-        await db.execute({
-            sql: "INSERT INTO book_raw (id, book_id, content) VALUES (?, ?, ?)",
-            args: [crypto.randomUUID(), String(bookId), safeText]
-        });
+        // Step 2: Raw (Chunked to respect Turso/libSQL HTTP limits)
+        var chunkSize = 50000; // 50k chars per chunk
+        var totalChunks = Math.ceil(safeText.length / chunkSize);
+        
+        for (var i = 0; i < totalChunks; i++) {
+            var chunk = safeText.substring(i * chunkSize, (i + 1) * chunkSize);
+            await db.execute({
+                sql: "INSERT INTO book_raw (id, book_id, content, chunk_index) VALUES (?, ?, ?, ?)",
+                args: [crypto.randomUUID(), String(bookId), chunk, i]
+            });
+        }
 
         // Step 3: Enrichment Job
         await db.execute({
@@ -481,6 +487,14 @@ app.post("/ingest", async function(req, res) {
 
     } catch (err) {
         console.error("[Ingest] Fatal: " + err.message);
+        // Rollback: delete the zombie book record if it was inserted
+        try {
+            await db.execute({ sql: "DELETE FROM books WHERE id = ?", args: [String(bookId)] });
+            await db.execute({ sql: "DELETE FROM book_raw WHERE book_id = ?", args: [String(bookId)] });
+            console.log("[Ingest] Rollback successful for stranded book " + bookId);
+        } catch(rollbackErr) {
+            console.error("[Ingest] Rollback failed:", rollbackErr.message);
+        }
         res.status(500).json({ error: err.message, stack: err.stack });
     }
 });
