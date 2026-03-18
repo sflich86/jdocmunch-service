@@ -409,7 +409,7 @@ app.get("/ask", async function(req, res) {
         
         var answer = await callGemini(async function(apiKey) {
             var gAI = new GoogleGenerativeAI(apiKey);
-            var model = gAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+            var model = gAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
             var gResult = await model.generateContent(prompt);
             return gResult.response.text();
         }, { tier: "batch", description: "ask" });
