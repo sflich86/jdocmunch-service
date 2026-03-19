@@ -297,7 +297,12 @@ app.get("/api/jdocmunch/books", async function(req, res) {
     try {
         var userId = req.query.user_id || "default";
         var result = await db.execute({
-            sql: "SELECT id, title, author, filename, pedagogical_compendium, index_status, created_at FROM books WHERE user_id = ? ORDER BY created_at DESC",
+            sql: "SELECT b.id, b.title, b.author, b.filename, b.pedagogical_compendium, b.index_status, b.created_at, " +
+                 "d.central_thesis, d.argumentative_arc, d.key_concepts, s.chapters " +
+                 "FROM books b " +
+                 "LEFT JOIN book_dna d ON d.book_id = b.id " +
+                 "LEFT JOIN book_structure s ON s.book_id = b.id " +
+                 "WHERE b.user_id = ? ORDER BY b.created_at DESC",
             args: [String(userId)]
         });
         res.json({ books: result.rows, total: result.rows.length });
