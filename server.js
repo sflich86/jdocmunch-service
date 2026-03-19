@@ -1,4 +1,4 @@
-// ─── LINE 1: ENV MUST LOAD BEFORE ANYTHING ELSE ─────────
+// â”€â”€â”€ LINE 1: ENV MUST LOAD BEFORE ANYTHING ELSE â”€â”€â”€â”€â”€â”€â”€â”€â”€
 require("dotenv").config();
 
 var express = require("express");
@@ -19,12 +19,12 @@ var { pipelineQueue } = require("./lib/pipelineQueue");
 var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./lib/searchRuntime");
 var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel } = require("./lib/semanticSearch");
 
-// ─── Constants ───────────────────────────────────────────
+// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 var VERSION = "1.0.43-embedding2";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
-// ─── Express App ─────────────────────────────────────────
+// â”€â”€â”€ Express App â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 var app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: "50mb" }));
@@ -56,9 +56,9 @@ app.use(function(req, res, next) {
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// ═══════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  UTILITIES
-// ═══════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function getUserBooksDir(userId) {
     var id = userId || "default";
@@ -109,9 +109,58 @@ async function resolveAllowedDocPaths(userId, bookIds) {
     });
 }
 
-// ═══════════════════════════════════════════════════════════
+async function getBookMetadataMap(userId, bookIds) {
+    var ids = Array.isArray(bookIds) ? bookIds.filter(Boolean).map(String) : [];
+    var sql = "SELECT id, title, author, filename FROM books WHERE user_id = ?";
+    var args = [String(userId || "default")];
+
+    if (ids.length > 0) {
+        var placeholders = ids.map(function() { return "?"; }).join(", ");
+        sql += " AND id IN (" + placeholders + ")";
+        args = args.concat(ids);
+    }
+
+    var result = await db.execute({ sql: sql, args: args });
+    var map = {};
+    for (var i = 0; i < result.rows.length; i++) {
+        var row = result.rows[i];
+        var docPath = getIndexedFilename(row.filename, row.id);
+        map[docPath] = {
+            book_id: String(row.id),
+            book_title: row.title || row.filename || row.id,
+            author: row.author || "",
+            source_file: docPath
+        };
+    }
+    return map;
+}
+
+function buildChunkBreadcrumb(chunk, metadata) {
+    var parts = [];
+    if (metadata && metadata.book_title) parts.push(String(metadata.book_title));
+    if (chunk && chunk.title) parts.push(String(chunk.title));
+    else if (metadata && metadata.source_file) parts.push(String(metadata.source_file));
+    return parts.join(" > ");
+}
+
+function enrichChunksWithMetadata(chunks, metadataMap) {
+    var list = Array.isArray(chunks) ? chunks : [];
+    var map = metadataMap || {};
+    return list.map(function(chunk) {
+        var metadata = map[String(chunk.doc_path || chunk.source_file || "")] || {};
+        var enriched = Object.assign({}, chunk, metadata);
+        enriched.source_file = metadata.source_file || chunk.source_file || chunk.doc_path || "libro";
+        enriched.book_id = metadata.book_id || chunk.book_id || "";
+        enriched.book_title = metadata.book_title || chunk.book_title || enriched.source_file;
+        enriched.author = metadata.author || chunk.author || "";
+        enriched.breadcrumb = chunk.breadcrumb || buildChunkBreadcrumb(chunk, metadata);
+        return enriched;
+    });
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  ROUTES
-// ═══════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 app.get("/api/jdocmunch/health", function(req, res) {
     res.json({ 
@@ -200,6 +249,7 @@ app.get("/api/jdocmunch/debug/dashboard", async function(req, res) {
             '</style><meta http-equiv="refresh" content="5"></head><body>' +
             '<h1>JDocMunch Ingestion Dashboard</h1><p>Auto-refreshes every 5s | Version: ' + VERSION + '</p>';
 
+        // Get Books
         var booksRes = await db.execute("SELECT id, title, author, index_status, created_at FROM books ORDER BY created_at DESC LIMIT 10");
         html += '<h2>Recent Books (books)</h2><table><tr><th>ID</th><th>Title</th><th>Author</th><th>Status</th><th>Created</th></tr>';
         for (var i=0; i<booksRes.rows.length; i++) {
@@ -208,6 +258,7 @@ app.get("/api/jdocmunch/debug/dashboard", async function(req, res) {
         }
         html += '</table>';
 
+        // Get Jobs
         var jobsRes = await db.execute("SELECT book_id, status, current_step, error_message, created_at FROM enrichment_jobs ORDER BY created_at DESC LIMIT 10");
         html += '<h2>Recent Pipelines (enrichment_jobs)</h2><table><tr><th>Book ID</th><th>Status</th><th>Step</th><th>Error</th><th>Created</th></tr>';
         for (var j=0; j<jobsRes.rows.length; j++) {
@@ -216,6 +267,7 @@ app.get("/api/jdocmunch/debug/dashboard", async function(req, res) {
         }
         html += '</table>';
 
+        // Get Logs
         var logsRes = await db.execute("SELECT job_id, stream, message, created_at FROM job_logs ORDER BY created_at DESC LIMIT 30");
         html += '<h2>Recent Logs (job_logs - Last 30)</h2><table><tr><th>Job ID</th><th>Stream</th><th>Message</th><th>Time</th></tr>';
         for (var k=0; k<logsRes.rows.length; k++) {
@@ -243,9 +295,10 @@ app.get("/books", async function(req, res) {
 
 app.get("/api/jdocmunch/books", async function(req, res) {
     try {
+        var userId = req.query.user_id || "default";
         var result = await db.execute({
-            sql: "SELECT id, title, author, index_status, created_at FROM books ORDER BY created_at DESC",
-            args: []
+            sql: "SELECT id, title, author, filename, pedagogical_compendium, index_status, created_at FROM books WHERE user_id = ? ORDER BY created_at DESC",
+            args: [String(userId)]
         });
         res.json({ books: result.rows, total: result.rows.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -263,6 +316,10 @@ app.get("/books/:id", async function(req, res) {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  DELETE A BOOK
+//  â€” v1.0.41 FIX: Safe req.body and req.query checks
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async function(req, res) {
     var bookId = null;
     var body = req.body || {};
@@ -301,6 +358,7 @@ app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async function(req, res) {
             }
         }
 
+        // Cleanup local files
         try {
             var userDir = getUserBooksDir(userId);
             if (fs.existsSync(userDir)) {
@@ -319,6 +377,7 @@ app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async function(req, res) {
             console.warn("[DELETE] FS cleanup warning: " + fsErr.message);
         }
 
+        // Vector index cleanup (Non-fatal)
         try {
             await callTool("delete_index", { repo: getUserRepo(userId) });
             console.log("[DELETE] Vector index cleanup OK");
@@ -342,6 +401,10 @@ app.delete(/^\/books\/(.+)$/, function(req, res) {
     app.handle(req, res);
 });
 
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  ENRICHMENT STATUS
+//  â€” v1.0.41: Advanced fallback to prevent stuck "Pending"
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
     var rawId = req.params[0];
     var bookId = decodeShieldedId(rawId);
@@ -349,11 +412,13 @@ app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
     try {
         console.log("[Status] Polling for: " + bookId + " (Raw: " + rawId + ")");
         
+        // Try strict ID search
         var result = await db.execute({
             sql: "SELECT id, status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? ORDER BY created_at DESC LIMIT 1",
             args: [String(bookId)]
         });
         
+        // Fail-safe: Try flexible filename search if ID yields nothing
         if (result.rows.length === 0) {
             console.log("[Status] Strict ID failed, trying filename fallback...");
             result = await db.execute({
@@ -417,12 +482,14 @@ app.post("/api/jdocmunch/search", async function(req, res) {
 
     try {
         var allowedDocPaths = await resolveAllowedDocPaths(user_id, book_ids);
-        var chunks = await searchUserIndex(q, user_id, {
+        var rawChunks = await searchUserIndex(q, user_id, {
             env: process.env,
             booksDir: BOOKS_DIR,
             maxResults: 15,
             docPaths: allowedDocPaths
         });
+        var metadataMap = await getBookMetadataMap(user_id, book_ids);
+        var chunks = enrichChunksWithMetadata(rawChunks, metadataMap);
         var sRes = { chunks: chunks };
         res.json(formatSearchResponse(q, sRes.chunks));
     } catch (err) {
@@ -430,6 +497,9 @@ app.post("/api/jdocmunch/search", async function(req, res) {
     }
 });
 
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  INGEST (Upload a Book)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 app.post("/ingest", async function(req, res) {
     var body = req.body || {};
     var userId = body.user_id || req.query.user_id || "default";
@@ -452,6 +522,7 @@ app.post("/ingest", async function(req, res) {
     var jobId = crypto.randomUUID();
 
     try {
+        // Step 1: Books
         await db.execute({
             sql: "INSERT INTO books (id, user_id, title, author, filename, index_status) VALUES (?, ?, ?, ?, ?, ?)",
             args: [
@@ -464,7 +535,8 @@ app.post("/ingest", async function(req, res) {
             ]
         });
 
-        var chunkSize = 50000;
+        // Step 2: Raw (Chunked to respect Turso/libSQL HTTP limits)
+        var chunkSize = 50000; // 50k chars per chunk
         var totalChunks = Math.ceil(safeText.length / chunkSize);
         
         for (var i = 0; i < totalChunks; i++) {
@@ -475,6 +547,7 @@ app.post("/ingest", async function(req, res) {
             });
         }
 
+        // Step 3: Enrichment Job
         await db.execute({
             sql: "INSERT INTO enrichment_jobs (id, book_id, user_id, file_name, status, job_type) VALUES (?, ?, ?, ?, 'PENDING', 'full')",
             args: [String(jobId), String(bookId), safeUserId, safeFilename]
@@ -485,6 +558,7 @@ app.post("/ingest", async function(req, res) {
 
     } catch (err) {
         console.error("[Ingest] Fatal: " + err.message);
+        // Rollback: delete the zombie book record if it was inserted
         try {
             await db.execute({ sql: "DELETE FROM books WHERE id = ?", args: [String(bookId)] });
             await db.execute({ sql: "DELETE FROM book_raw WHERE book_id = ?", args: [String(bookId)] });
@@ -496,6 +570,9 @@ app.post("/ingest", async function(req, res) {
     }
 });
 
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  GLOBAL ERROR HANDLER
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 app.use(function(err, req, res, next) {
     console.error("[Global Error]", err);
     res.status(500).json({ 
