@@ -16,6 +16,7 @@ var { runMigrations } = require("./lib/migrations");
 var { callGemini } = require("./lib/geminiCaller");
 var { getClient, callTool } = require("./lib/mcpClient");
 var { pipelineQueue } = require("./lib/pipelineQueue");
+var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./lib/searchRuntime");
 
 // ─── Constants ───────────────────────────────────────────
 var VERSION = "1.0.42-semantic-fix";
@@ -205,7 +206,6 @@ app.get("/api/jdocmunch/debug/dashboard", async function(req, res) {
             '</style><meta http-equiv="refresh" content="5"></head><body>' +
             '<h1>JDocMunch Ingestion Dashboard</h1><p>Auto-refreshes every 5s | Version: ' + VERSION + '</p>';
 
-        // Get Books
         var booksRes = await db.execute("SELECT id, title, author, index_status, created_at FROM books ORDER BY created_at DESC LIMIT 10");
         html += '<h2>Recent Books (books)</h2><table><tr><th>ID</th><th>Title</th><th>Author</th><th>Status</th><th>Created</th></tr>';
         for (var i=0; i<booksRes.rows.length; i++) {
@@ -214,7 +214,6 @@ app.get("/api/jdocmunch/debug/dashboard", async function(req, res) {
         }
         html += '</table>';
 
-        // Get Jobs
         var jobsRes = await db.execute("SELECT book_id, status, current_step, error_message, created_at FROM enrichment_jobs ORDER BY created_at DESC LIMIT 10");
         html += '<h2>Recent Pipelines (enrichment_jobs)</h2><table><tr><th>Book ID</th><th>Status</th><th>Step</th><th>Error</th><th>Created</th></tr>';
         for (var j=0; j<jobsRes.rows.length; j++) {
@@ -223,7 +222,6 @@ app.get("/api/jdocmunch/debug/dashboard", async function(req, res) {
         }
         html += '</table>';
 
-        // Get Logs
         var logsRes = await db.execute("SELECT job_id, stream, message, created_at FROM job_logs ORDER BY created_at DESC LIMIT 30");
         html += '<h2>Recent Logs (job_logs - Last 30)</h2><table><tr><th>Job ID</th><th>Stream</th><th>Message</th><th>Time</th></tr>';
         for (var k=0; k<logsRes.rows.length; k++) {
@@ -271,141 +269,6 @@ app.get("/books/:id", async function(req, res) {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════
-//  DELETE A BOOK
-//  — v1.0.41 FIX: Safe req.body and req.query checks
-// ═══════════════════════════════════════════════════════════
-app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async function(req, res) {
-    var bookId = null;
-    var body = req.body || {};
-    var userId = body.user_id || req.query.user_id || "admin";
-
-    try {
-        var rawParam = req.params[0];
-        bookId = decodeShieldedId(rawParam);
-
-        console.log("[DELETE] Raw: " + rawParam + " | Decoded: " + bookId + " (User: " + userId + ")");
-
-        if (!bookId || bookId === "undefined" || bookId === "null") {
-            return res.status(400).json({ error: "Invalid book ID", received: rawParam });
-        }
-
-        var idStr = String(bookId);
-
-        var tables = [
-            { name: "enrichment_jobs", sql: "DELETE FROM enrichment_jobs WHERE book_id = ?" },
-            { name: "book_raw", sql: "DELETE FROM book_raw WHERE book_id = ?" },
-            { name: "book_dna", sql: "DELETE FROM book_dna WHERE book_id = ?" },
-            { name: "book_structure", sql: "DELETE FROM book_structure WHERE book_id = ?" },
-            { name: "books", sql: "DELETE FROM books WHERE id = ?" }
-        ];
-
-        var resultsHits = {};
-        for (var i = 0; i < tables.length; i++) {
-            var table = tables[i];
-            try {
-                var result = await db.execute({ sql: table.sql, args: [idStr] });
-                resultsHits[table.name] = result.rowsAffected;
-                console.log("[DELETE] Table " + table.name + " affected: " + result.rowsAffected);
-            } catch (innerErr) {
-                console.error("[DELETE] Error in " + table.name + ": " + innerErr.message);
-                resultsHits[table.name] = "ERROR: " + innerErr.message;
-            }
-        }
-
-        // Cleanup local files
-        try {
-            var userDir = getUserBooksDir(userId);
-            if (fs.existsSync(userDir)) {
-              var files = fs.readdirSync(userDir);
-              var cleanId = idStr.toLowerCase().replace(/[^a-z0-9]/g, "");
-              for (var j = 0; j < files.length; j++) {
-                  var f = files[j];
-                  var cleanF = f.toLowerCase().replace(/[^a-z0-9]/g, "");
-                  if (cleanF.indexOf(cleanId) !== -1 || f.indexOf(idStr) !== -1) {
-                      fs.unlinkSync(path.join(userDir, f));
-                      console.log("[DELETE] File removed: " + f);
-                  }
-              }
-            }
-        } catch (fsErr) {
-            console.warn("[DELETE] FS cleanup warning: " + fsErr.message);
-        }
-
-        // Vector index cleanup (Non-fatal)
-        try {
-            await callTool("delete_index", { repo: getUserRepo(userId) });
-            console.log("[DELETE] Vector index cleanup OK");
-        } catch (e) {
-            console.warn("[DELETE] Vector index cleanup non-fatal error: " + e.message);
-        }
-
-        res.json({ 
-            success: true, 
-            deleted: idStr,
-            details: resultsHits
-        });
-    } catch (err) {
-        console.error("[DELETE] Fatal:", err);
-        res.status(500).json({ error: err.message, stack: err.stack });
-    }
-});
-
-app.delete(/^\/books\/(.+)$/, function(req, res) {
-    req.url = "/api/jdocmunch" + req.url;
-    app.handle(req, res);
-});
-
-// ═══════════════════════════════════════════════════════════
-//  ENRICHMENT STATUS
-//  — v1.0.41: Advanced fallback to prevent stuck "Pending"
-// ═══════════════════════════════════════════════════════════
-app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
-    var rawId = req.params[0];
-    var bookId = decodeShieldedId(rawId);
-
-    try {
-        console.log("[Status] Polling for: " + bookId + " (Raw: " + rawId + ")");
-        
-        // Try strict ID search
-        var result = await db.execute({
-            sql: "SELECT id, status, current_step, error_message FROM enrichment_jobs WHERE book_id = ? ORDER BY created_at DESC LIMIT 1",
-            args: [String(bookId)]
-        });
-        
-        // Fail-safe: Try flexible filename search if ID yields nothing
-        if (result.rows.length === 0) {
-            console.log("[Status] Strict ID failed, trying filename fallback...");
-            result = await db.execute({
-               sql: "SELECT id, status, current_step, error_message FROM enrichment_jobs WHERE file_name LIKE ? OR book_id LIKE ? ORDER BY created_at DESC LIMIT 1",
-               args: ["%" + String(bookId) + "%", "%" + String(bookId) + "%"]
-            });
-        }
-
-        if (result.rows.length === 0) {
-            console.warn("[Status] 404 for " + bookId + ". Returning synthetic FAILED to break frontend loop.");
-            try {
-                await db.execute({
-                    sql: "UPDATE books SET index_status = 'error' WHERE (id = ? OR filename = ?) AND index_status = 'pending'",
-                    args: [String(bookId), String(bookId)]
-                });
-            } catch (healErr) {
-                console.error("[Status] Auto-heal failed:", healErr.message);
-            }
-            return res.status(404).json({ 
-                error: "Job not found",
-                details: "No enrichment job found for ID or filename containing " + bookId,
-                status: "NOT_FOUND" 
-            });
-        }
-        
-        res.json(result.rows[0]);
-    } catch (err) { 
-        console.error("[Status] Error:", err.message);
-        res.status(500).json({ error: err.message }); 
-    }
-});
-
 app.get("/ask", async function(req, res) {
     var q = req.query.q;
     var user_id = req.query.user_id;
@@ -431,31 +294,17 @@ app.get("/ask", async function(req, res) {
 app.post("/api/jdocmunch/search", async function(req, res) {
     var q = req.body.query || req.query.q;
     var user_id = req.body.user_id || req.query.user_id || "default";
-    var book_ids = req.body.book_ids || []; // Option to filter (future)
 
     if (!q) return res.status(400).json({ error: "Missing query" });
 
     try {
         var sRes = await performSearch(q, user_id);
-        // Format to match what the frontend expects or providing a clean structure
-        res.json({ 
-            success: true,
-            query: q,
-            candidates: sRes.chunks.map(c => ({
-                id: c.id,
-                text: c.content,
-                breadcrumb: c.source_file,
-                score: c.score
-            }))
-        });
+        res.json(formatSearchResponse(q, sRes.chunks));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// ═══════════════════════════════════════════════════════════
-//  INGEST (Upload a Book)
-// ═══════════════════════════════════════════════════════════
 app.post("/ingest", async function(req, res) {
     var body = req.body || {};
     var userId = body.user_id || req.query.user_id || "default";
@@ -478,21 +327,12 @@ app.post("/ingest", async function(req, res) {
     var jobId = crypto.randomUUID();
 
     try {
-        // Step 1: Books
         await db.execute({
             sql: "INSERT INTO books (id, user_id, title, author, filename, index_status) VALUES (?, ?, ?, ?, ?, ?)",
-            args: [
-                String(bookId), 
-                safeUserId, 
-                safeFilename.replace(/\.[^/.]+$/, ""), 
-                "Unknown", 
-                safeFilename, 
-                "pending"
-            ]
+            args: [String(bookId), safeUserId, safeFilename.replace(/\.[^/.]+$/, ""), "Unknown", safeFilename, "pending"]
         });
 
-        // Step 2: Raw (Chunked to respect Turso/libSQL HTTP limits)
-        var chunkSize = 50000; // 50k chars per chunk
+        var chunkSize = 50000;
         var totalChunks = Math.ceil(safeText.length / chunkSize);
         
         for (var i = 0; i < totalChunks; i++) {
@@ -503,7 +343,6 @@ app.post("/ingest", async function(req, res) {
             });
         }
 
-        // Step 3: Enrichment Job
         await db.execute({
             sql: "INSERT INTO enrichment_jobs (id, book_id, user_id, file_name, status, job_type) VALUES (?, ?, ?, ?, 'PENDING', 'full')",
             args: [String(jobId), String(bookId), safeUserId, safeFilename]
@@ -514,7 +353,6 @@ app.post("/ingest", async function(req, res) {
 
     } catch (err) {
         console.error("[Ingest] Fatal: " + err.message);
-        // Rollback: delete the zombie book record if it was inserted
         try {
             await db.execute({ sql: "DELETE FROM books WHERE id = ?", args: [String(bookId)] });
             await db.execute({ sql: "DELETE FROM book_raw WHERE book_id = ?", args: [String(bookId)] });
@@ -526,9 +364,6 @@ app.post("/ingest", async function(req, res) {
     }
 });
 
-// ═══════════════════════════════════════════════════════════
-//  GLOBAL ERROR HANDLER
-// ═══════════════════════════════════════════════════════════
 app.use(function(err, req, res, next) {
     console.error("[Global Error]", err);
     res.status(500).json({ 
@@ -551,10 +386,68 @@ async function recoverPendingJobs() {
     } catch (err) { console.error("[JOBS] Error:", err.message); }
 }
 
+async function rebuildPersistedIndexes() {
+    console.log("[IndexRecovery] Checking persisted MCP index at " + getDocIndexPath(process.env));
+
+    try {
+        var booksRes = await db.execute({
+            sql: "SELECT b.id, b.user_id, b.filename, br.content, br.chunk_index " +
+                 "FROM books b JOIN book_raw br ON br.book_id = b.id " +
+                 "WHERE b.index_status = 'ready' ORDER BY b.user_id ASC, b.id ASC, br.chunk_index ASC",
+            args: []
+        });
+
+        if (booksRes.rows.length === 0) {
+            console.log("[IndexRecovery] No ready books found.");
+            return;
+        }
+
+        var byBook = {};
+        for (var i = 0; i < booksRes.rows.length; i++) {
+            var row = booksRes.rows[i];
+            var key = String(row.id);
+            if (!byBook[key]) {
+                byBook[key] = {
+                    userId: String(row.user_id || "default"),
+                    filename: getIndexedFilename(row.filename, key),
+                    chunks: []
+                };
+            }
+            byBook[key].chunks.push(String(row.content || ""));
+        }
+
+        var usersToIndex = {};
+        var bookIds = Object.keys(byBook);
+        for (var j = 0; j < bookIds.length; j++) {
+            var book = byBook[bookIds[j]];
+            var userDir = getUserBooksDir(book.userId);
+            var filePath = path.join(userDir, book.filename);
+            fs.writeFileSync(filePath, book.chunks.join(""), "utf-8");
+            usersToIndex[book.userId] = userDir;
+            console.log("[IndexRecovery] Rehydrated " + filePath);
+        }
+
+        var userIds = Object.keys(usersToIndex);
+        for (var k = 0; k < userIds.length; k++) {
+            var userId = userIds[k];
+            var indexResult = await callTool("index_local", {
+                path: usersToIndex[userId],
+                use_embeddings: true,
+                incremental: false
+            });
+            var rawText = (indexResult && indexResult.content && indexResult.content[0] && indexResult.content[0].text) || "{}";
+            console.log("[IndexRecovery] Indexed local/" + userId + ": " + rawText);
+        }
+    } catch (err) {
+        console.error("[IndexRecovery] Error:", err.message);
+    }
+}
+
 async function initServer() {
     console.log("[Init] Starting VERSION " + VERSION + "...");
     try {
         await runMigrations(db);
+        await rebuildPersistedIndexes();
         await recoverPendingJobs();
         app.listen(PORT, function() {
             console.log("JDOCMUNCH listening on port " + PORT);
