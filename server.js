@@ -18,7 +18,7 @@ var { getClient, callTool } = require("./lib/mcpClient");
 var { pipelineQueue } = require("./lib/pipelineQueue");
 
 // ─── Constants ───────────────────────────────────────────
-var VERSION = "1.0.41-final-polish";
+var VERSION = "1.0.42-semantic-fix";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
