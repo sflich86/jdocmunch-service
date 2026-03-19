@@ -1,10 +1,14 @@
 const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const {
   DEFAULT_DOC_INDEX_PATH,
   getDocIndexPath,
   formatSearchResponse,
-  extractSectionRecord
+  extractSectionRecord,
+  readChunkFromRawFile
 } = require("./lib/searchRuntime");
 
 function testDefaultDocIndexPath() {
@@ -62,10 +66,42 @@ function testExtractSectionRecord() {
   assert.strictEqual(legacy.text, "Texto legacy");
 }
 
+function testReadChunkFromRawFile() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jdocmunch-search-"));
+  const docIndexPath = path.join(root, "doc-index");
+  const booksDir = path.join(root, "books");
+  const localRepoDir = path.join(docIndexPath, "local", "admin");
+  const userBooksDir = path.join(booksDir, "admin");
+  const docName = "querida.md";
+  const content = "hola miedo mundo";
+  const start = content.indexOf("miedo");
+  const end = start + "miedo".length;
+
+  fs.mkdirSync(localRepoDir, { recursive: true });
+  fs.mkdirSync(userBooksDir, { recursive: true });
+  fs.writeFileSync(path.join(localRepoDir, docName), content, "utf8");
+  fs.writeFileSync(path.join(userBooksDir, docName), content, "utf8");
+
+  assert.strictEqual(
+    readChunkFromRawFile({
+      env: { DOC_INDEX_PATH: docIndexPath },
+      booksDir: booksDir,
+      userId: "admin",
+      docPath: docName,
+      byteStart: start,
+      byteEnd: end
+    }),
+    "miedo"
+  );
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 function run() {
   testDefaultDocIndexPath();
   testSearchResponseShape();
   testExtractSectionRecord();
+  testReadChunkFromRawFile();
   console.log("test-search-runtime.js: ok");
 }
 
