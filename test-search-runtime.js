@@ -10,6 +10,10 @@ const {
   extractSectionRecord,
   readChunkFromRawFile
 } = require("./lib/searchRuntime");
+const {
+  normalizeVector,
+  cosineSimilarity
+} = require("./lib/semanticSearch");
 
 function testDefaultDocIndexPath() {
   assert.strictEqual(
@@ -97,11 +101,19 @@ function testReadChunkFromRawFile() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+function testVectorHelpers() {
+  const normalized = normalizeVector([3, 4]);
+  assert.ok(Math.abs(normalized[0] - 0.6) < 0.0001);
+  assert.ok(Math.abs(normalized[1] - 0.8) < 0.0001);
+  assert.ok(Math.abs(cosineSimilarity(normalized, normalized) - 1) < 0.0001);
+}
+
 function run() {
   testDefaultDocIndexPath();
   testSearchResponseShape();
   testExtractSectionRecord();
   testReadChunkFromRawFile();
+  testVectorHelpers();
   console.log("test-search-runtime.js: ok");
 }
 
