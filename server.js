@@ -1,4 +1,4 @@
-// â”€â”€â”€ LINE 1: ENV MUST LOAD BEFORE ANYTHING ELSE â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —— LINE 1: ENV MUST LOAD BEFORE ANYTHING ELSE —————————
 require("dotenv").config();
 
 var express = require("express");
@@ -19,13 +19,14 @@ var { pipelineQueue } = require("./lib/pipelineQueue");
 var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./lib/searchRuntime");
 var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel } = require("./lib/semanticSearch");
 var { buildChapterRanges, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
+var { buildBookMetadataQuery } = require("./lib/bookSearchFilters");
 
-// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —— Constants ———————————————————————————————————
 var VERSION = "1.0.43-embedding2";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
-// â”€â”€â”€ Express App â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —— Express App —————————————————————————————————
 var app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: "50mb" }));
@@ -57,9 +58,9 @@ app.use(function(req, res, next) {
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 //  UTILITIES
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 
 function getUserBooksDir(userId) {
     var id = userId || "default";
@@ -111,20 +112,8 @@ async function resolveAllowedDocPaths(userId, bookIds) {
 }
 
 async function getBookMetadataMap(userId, bookIds) {
-    var ids = Array.isArray(bookIds) ? bookIds.filter(Boolean).map(String) : [];
-    var sql = "SELECT b.id, b.title, b.author, b.filename, s.chapters " +
-        "FROM books b " +
-        "LEFT JOIN book_structure s ON s.book_id = b.id " +
-        "WHERE b.user_id = ?";
-    var args = [String(userId || "default")];
-
-    if (ids.length > 0) {
-        var placeholders = ids.map(function() { return "?"; }).join(", ");
-        sql += " AND id IN (" + placeholders + ")";
-        args = args.concat(ids);
-    }
-
-    var result = await db.execute({ sql: sql, args: args });
+    var query = buildBookMetadataQuery(userId, bookIds);
+    var result = await db.execute(query);
     var map = {};
     for (var i = 0; i < result.rows.length; i++) {
         var row = result.rows[i];
@@ -155,9 +144,9 @@ async function getBookMetadataMap(userId, bookIds) {
     return map;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 //  ROUTES
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 
 app.get("/api/jdocmunch/health", function(req, res) {
     res.json({ 
@@ -318,10 +307,10 @@ app.get("/books/:id", async function(req, res) {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 //  DELETE A BOOK
-//  â€” v1.0.41 FIX: Safe req.body and req.query checks
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  — v1.0.41 FIX: Safe req.body and req.query checks
+// ═══════════════════════════════════════════════════════════
 app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async function(req, res) {
     var bookId = null;
     var body = req.body || {};
@@ -403,10 +392,10 @@ app.delete(/^\/books\/(.+)$/, function(req, res) {
     app.handle(req, res);
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 //  ENRICHMENT STATUS
-//  â€” v1.0.41: Advanced fallback to prevent stuck "Pending"
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  — v1.0.41: Advanced fallback to prevent stuck "Pending"
+// ═══════════════════════════════════════════════════════════
 app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
     var rawId = req.params[0];
     var bookId = decodeShieldedId(rawId);
@@ -447,9 +436,9 @@ app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
         }
         
         res.json(result.rows[0]);
-    } catch (err) {
+    } catch (err) { 
         console.error("[Status] Error:", err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message }); 
     }
 });
 
@@ -499,9 +488,9 @@ app.post("/api/jdocmunch/search", async function(req, res) {
     }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 //  INGEST (Upload a Book)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 app.post("/ingest", async function(req, res) {
     var body = req.body || {};
     var userId = body.user_id || req.query.user_id || "default";
@@ -572,9 +561,9 @@ app.post("/ingest", async function(req, res) {
     }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 //  GLOBAL ERROR HANDLER
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════
 app.use(function(err, req, res, next) {
     console.error("[Global Error]", err);
     res.status(500).json({ 
