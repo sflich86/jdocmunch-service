@@ -20,6 +20,7 @@ RUN npm install
 
 # Crear carpeta local donde jdocmunch guarda los índices
 RUN mkdir -p /root/.local/share/jdocmunch
+RUN mkdir -p /root/.local/share/jdocmunch/doc-index
 RUN mkdir -p /app/books
 
 # Copiar todo el código y los libros
