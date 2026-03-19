@@ -18,6 +18,7 @@ var { getClient, callTool } = require("./lib/mcpClient");
 var { pipelineQueue } = require("./lib/pipelineQueue");
 var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./lib/searchRuntime");
 var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel } = require("./lib/semanticSearch");
+var { buildChapterRanges, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
 
 // â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 var VERSION = "1.0.43-embedding2";
@@ -111,7 +112,10 @@ async function resolveAllowedDocPaths(userId, bookIds) {
 
 async function getBookMetadataMap(userId, bookIds) {
     var ids = Array.isArray(bookIds) ? bookIds.filter(Boolean).map(String) : [];
-    var sql = "SELECT id, title, author, filename FROM books WHERE user_id = ?";
+    var sql = "SELECT b.id, b.title, b.author, b.filename, s.chapters " +
+        "FROM books b " +
+        "LEFT JOIN book_structure s ON s.book_id = b.id " +
+        "WHERE b.user_id = ?";
     var args = [String(userId || "default")];
 
     if (ids.length > 0) {
@@ -125,37 +129,30 @@ async function getBookMetadataMap(userId, bookIds) {
     for (var i = 0; i < result.rows.length; i++) {
         var row = result.rows[i];
         var docPath = getIndexedFilename(row.filename, row.id);
+        var filePath = path.join(getUserBooksDir(userId), docPath);
+        var content = "";
+        var chapters = [];
+
+        if (fs.existsSync(filePath)) {
+            content = fs.readFileSync(filePath, "utf8");
+        }
+
+        try {
+            chapters = JSON.parse(row.chapters || "[]");
+        } catch (err) {
+            chapters = [];
+        }
+
         map[docPath] = {
             book_id: String(row.id),
             book_title: row.title || row.filename || row.id,
             author: row.author || "",
-            source_file: docPath
+            source_file: docPath,
+            chapters: chapters,
+            chapter_ranges: buildChapterRanges(content, chapters)
         };
     }
     return map;
-}
-
-function buildChunkBreadcrumb(chunk, metadata) {
-    var parts = [];
-    if (metadata && metadata.book_title) parts.push(String(metadata.book_title));
-    if (chunk && chunk.title) parts.push(String(chunk.title));
-    else if (metadata && metadata.source_file) parts.push(String(metadata.source_file));
-    return parts.join(" > ");
-}
-
-function enrichChunksWithMetadata(chunks, metadataMap) {
-    var list = Array.isArray(chunks) ? chunks : [];
-    var map = metadataMap || {};
-    return list.map(function(chunk) {
-        var metadata = map[String(chunk.doc_path || chunk.source_file || "")] || {};
-        var enriched = Object.assign({}, chunk, metadata);
-        enriched.source_file = metadata.source_file || chunk.source_file || chunk.doc_path || "libro";
-        enriched.book_id = metadata.book_id || chunk.book_id || "";
-        enriched.book_title = metadata.book_title || chunk.book_title || enriched.source_file;
-        enriched.author = metadata.author || chunk.author || "";
-        enriched.breadcrumb = chunk.breadcrumb || buildChunkBreadcrumb(chunk, metadata);
-        return enriched;
-    });
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -450,9 +447,9 @@ app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
         }
         
         res.json(result.rows[0]);
-    } catch (err) { 
+    } catch (err) {
         console.error("[Status] Error:", err.message);
-        res.status(500).json({ error: err.message }); 
+        res.status(500).json({ error: err.message });
     }
 });
 
