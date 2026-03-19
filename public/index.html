@@ -273,10 +273,22 @@
             document.getElementById('statsArea').style.display = 'none';
 
             const startTime = Date.now();
-            const endpoint = currentMode === 'ask' ? '/ask' : '/search';
+            const isAsk = currentMode === 'ask';
+            const endpoint = isAsk ? '/ask' : '/api/jdocmunch/search';
+            const method = isAsk ? 'GET' : 'POST';
 
             try {
-                const response = await fetch(`${endpoint}?q=${encodeURIComponent(query)}`);
+                let response;
+                if (isAsk) {
+                    response = await fetch(`${endpoint}?q=${encodeURIComponent(query)}&user_id=admin`);
+                } else {
+                    response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query: query, user_id: 'admin' })
+                    });
+                }
+                
                 const data = await response.json();
                 const totalTime = Date.now() - startTime;
                 loader.style.display = 'none';

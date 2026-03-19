@@ -97,9 +97,11 @@ async function performSearch(q, userId) {
                     var sData = JSON.parse(sec.content[0].text);
                     var sectionId = sData.id || r.id;
                     
+                    // Use .content (old version) or .text (new version) – JDocMunch 1.3.0 uses .text
+                    var finalContent = sData.content || sData.text || "No content found.";
                     chunks.push({
                         id: sectionId,
-                        content: sData.content,
+                        content: finalContent,
                         source_file: sData.source_file || "libro",
                         score: r.score
                     });
@@ -424,6 +426,31 @@ app.get("/ask", async function(req, res) {
 
         res.json({ answer: answer || "No response", context_used: chunks.length + " chunks" });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/jdocmunch/search", async function(req, res) {
+    var q = req.body.query || req.query.q;
+    var user_id = req.body.user_id || req.query.user_id || "default";
+    var book_ids = req.body.book_ids || []; // Option to filter (future)
+
+    if (!q) return res.status(400).json({ error: "Missing query" });
+
+    try {
+        var sRes = await performSearch(q, user_id);
+        // Format to match what the frontend expects or providing a clean structure
+        res.json({ 
+            success: true,
+            query: q,
+            candidates: sRes.chunks.map(c => ({
+                id: c.id,
+                text: c.content,
+                breadcrumb: c.source_file,
+                score: c.score
+            }))
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // ═══════════════════════════════════════════════════════════
