@@ -18,7 +18,7 @@ var { getClient, callTool } = require("./lib/mcpClient");
 var { pipelineQueue } = require("./lib/pipelineQueue");
 var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./lib/searchRuntime");
 var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel } = require("./lib/semanticSearch");
-var { buildChapterRanges, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
+var { buildChapterRanges, buildStructuredMarkdownFromChapters, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
 var { buildBookMetadataQuery } = require("./lib/bookSearchFilters");
 
 // —— Constants ———————————————————————————————————
@@ -591,8 +591,9 @@ async function rebuildPersistedIndexes() {
 
     try {
         var booksRes = await db.execute({
-            sql: "SELECT b.id, b.user_id, b.filename, b.index_status, br.content, br.chunk_index " +
+            sql: "SELECT b.id, b.user_id, b.filename, b.index_status, s.chapters, br.content, br.chunk_index " +
                  "FROM books b " +
+                 "LEFT JOIN book_structure s ON s.book_id = b.id " +
                  "JOIN book_raw br ON br.book_id = b.id " +
                  "WHERE b.index_status = 'ready' " +
                  "ORDER BY b.user_id ASC, b.id ASC, br.chunk_index ASC",
@@ -613,6 +614,7 @@ async function rebuildPersistedIndexes() {
                     bookId: key,
                     userId: String(row.user_id || "default"),
                     filename: getIndexedFilename(row.filename, key),
+                    chapters: String(row.chapters || "[]"),
                     chunks: []
                 };
             }
@@ -625,7 +627,14 @@ async function rebuildPersistedIndexes() {
             var book = byBook[bookIds[j]];
             var userDir = getUserBooksDir(book.userId);
             var filePath = path.join(userDir, book.filename);
-            fs.writeFileSync(filePath, book.chunks.join(""), "utf-8");
+            var chapters = [];
+            try {
+                chapters = JSON.parse(book.chapters || "[]");
+            } catch (_err) {
+                chapters = [];
+            }
+            var structuredContent = buildStructuredMarkdownFromChapters(book.chunks.join(""), chapters);
+            fs.writeFileSync(filePath, structuredContent, "utf-8");
             usersToIndex[book.userId] = userDir;
             console.log("[IndexRecovery] Rehydrated " + filePath);
         }
