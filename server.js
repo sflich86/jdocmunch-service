@@ -20,9 +20,10 @@ var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./l
 var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel } = require("./lib/semanticSearch");
 var { buildChapterRanges, buildStructuredMarkdownFromChapters, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
 var { buildBookMetadataQuery } = require("./lib/bookSearchFilters");
+var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
 
 // —— Constants ———————————————————————————————————
-var VERSION = "1.0.43-embedding2";
+var VERSION = "1.0.44-embedding2-structural-chapters";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
@@ -472,6 +473,12 @@ app.post("/api/jdocmunch/search", async function(req, res) {
     if (!q) return res.status(400).json({ error: "Missing query" });
 
     try {
+        var metadataMap = await getBookMetadataMap(user_id, book_ids);
+        var structuralChunks = searchStructuralChapterMetadata(q, metadataMap, { bookIds: book_ids });
+        if (structuralChunks.length > 0) {
+            return res.json(formatSearchResponse(q, structuralChunks));
+        }
+
         var allowedDocPaths = await resolveAllowedDocPaths(user_id, book_ids);
         var rawChunks = await searchUserIndex(q, user_id, {
             env: process.env,
@@ -479,7 +486,6 @@ app.post("/api/jdocmunch/search", async function(req, res) {
             maxResults: 15,
             docPaths: allowedDocPaths
         });
-        var metadataMap = await getBookMetadataMap(user_id, book_ids);
         var chunks = enrichChunksWithMetadata(rawChunks, metadataMap);
         var sRes = { chunks: chunks };
         res.json(formatSearchResponse(q, sRes.chunks));
