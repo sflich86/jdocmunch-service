@@ -9,7 +9,7 @@ async function reproduce() {
         args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
         env: {
             ...process.env,
-            GEMINI_EMBEDDING_MODEL: 'gemini-embedding-2-preview'
+            GEMINI_EMBEDDING_MODEL: 'gemini-embedding-001'
         }
     });
 
