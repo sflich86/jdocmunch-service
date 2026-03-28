@@ -19,11 +19,11 @@ var { pipelineQueue } = require("./lib/pipelineQueue");
 var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./lib/searchRuntime");
 var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel } = require("./lib/semanticSearch");
 var { buildChapterRanges, buildStructuredMarkdownFromChapters, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
-var { buildBookMetadataQuery } = require("./lib/bookSearchFilters");
 var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
+var { buildConceptHintPack, rerankChunksWithConceptHints } = require("./lib/conceptHintReranker");
 
 // —— Constants ———————————————————————————————————
-var VERSION = "1.0.44-embedding2-structural-chapters";
+var VERSION = "1.0.45-context-core-v2";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
@@ -113,8 +113,20 @@ async function resolveAllowedDocPaths(userId, bookIds) {
 }
 
 async function getBookMetadataMap(userId, bookIds) {
-    var query = buildBookMetadataQuery(userId, bookIds);
-    var result = await db.execute(query);
+    var ids = Array.isArray(bookIds) ? bookIds.filter(Boolean).map(String) : [];
+    var sql = "SELECT b.id, b.title, b.author, b.filename, b.context_core_json, s.chapters, s.structure_version, s.structure_health_json " +
+        "FROM books b " +
+        "LEFT JOIN book_structure s ON s.book_id = b.id " +
+        "WHERE b.user_id = ?";
+    var args = [String(userId || "default")];
+
+    if (ids.length > 0) {
+        var placeholders = ids.map(function() { return "?"; }).join(", ");
+        sql += " AND id IN (" + placeholders + ")";
+        args = args.concat(ids);
+    }
+
+    var result = await db.execute({ sql: sql, args: args });
     var map = {};
     for (var i = 0; i < result.rows.length; i++) {
         var row = result.rows[i];
@@ -133,13 +145,23 @@ async function getBookMetadataMap(userId, bookIds) {
             chapters = [];
         }
 
+        var structureHealth = null;
+        try {
+            structureHealth = row.structure_health_json ? JSON.parse(row.structure_health_json) : null;
+        } catch (err) {
+            structureHealth = null;
+        }
+
         map[docPath] = {
             book_id: String(row.id),
             book_title: row.title || row.filename || row.id,
             author: row.author || "",
             source_file: docPath,
             chapters: chapters,
-            chapter_ranges: buildChapterRanges(content, chapters)
+            chapter_ranges: buildChapterRanges(content, chapters),
+            contextCore: row.context_core_json || null,
+            structure_version: row.structure_version || null,
+            structure_health: structureHealth
         };
     }
     return map;
@@ -284,8 +306,8 @@ app.get("/api/jdocmunch/books", async function(req, res) {
     try {
         var userId = req.query.user_id || "default";
         var result = await db.execute({
-            sql: "SELECT b.id, b.title, b.author, b.filename, b.pedagogical_compendium, b.index_status, b.created_at, " +
-                 "d.central_thesis, d.argumentative_arc, d.key_concepts, s.chapters " +
+            sql: "SELECT b.id, b.title, b.author, b.filename, b.pedagogical_compendium, b.context_core_json, b.index_status, b.created_at, " +
+                 "d.central_thesis, d.argumentative_arc, d.key_concepts, s.chapters, s.structure_version, s.structure_health_json " +
                  "FROM books b " +
                  "LEFT JOIN book_dna d ON d.book_id = b.id " +
                  "LEFT JOIN book_structure s ON s.book_id = b.id " +
@@ -480,13 +502,18 @@ app.post("/api/jdocmunch/search", async function(req, res) {
         }
 
         var allowedDocPaths = await resolveAllowedDocPaths(user_id, book_ids);
+        var conceptHintPack = buildConceptHintPack(q, metadataMap);
         var rawChunks = await searchUserIndex(q, user_id, {
             env: process.env,
             booksDir: BOOKS_DIR,
             maxResults: 15,
             docPaths: allowedDocPaths
         });
-        var chunks = enrichChunksWithMetadata(rawChunks, metadataMap);
+        var chunks = rerankChunksWithConceptHints(
+            q,
+            enrichChunksWithMetadata(rawChunks, metadataMap),
+            conceptHintPack
+        );
         var sRes = { chunks: chunks };
         res.json(formatSearchResponse(q, sRes.chunks));
     } catch (err) {
