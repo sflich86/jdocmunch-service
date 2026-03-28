@@ -23,12 +23,12 @@ var { getChaptersForDocPath, listIndexDocPathsForBook, materializeIndexableDocum
 var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
 var { buildConceptHintPack, rerankChunksWithConceptHints } = require("./lib/conceptHintReranker");
 
-// —— Constants ———————————————————————————————————
+// —— Constants ————————————————————————————————————————————————
 var VERSION = "1.0.45-context-core-v2";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
-// —— Express App —————————————————————————————————
+// —— Express App ————————————————————————————————————————————
 var app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: "50mb" }));
@@ -599,7 +599,9 @@ app.post("/ingest", async function(req, res) {
             args: [String(jobId), String(bookId), safeUserId, safeFilename]
         });
 
-        startPipeline(userId, bookId, jobId);
+        startPipeline(userId, bookId, jobId).catch(function(err) {
+            console.error("[Ingest] Background pipeline failed for " + bookId + ": " + err.message);
+        });
         res.status(200).json({ success: true, bookId: bookId, book_id: bookId, jobId: jobId });
 
     } catch (err) {
@@ -677,6 +679,7 @@ async function rebuildPersistedIndexes() {
         }
 
         var usersToIndex = {};
+        var userDocPathsToRefresh = {};
         var bookIds = Object.keys(byBook);
         for (var j = 0; j < bookIds.length; j++) {
             var book = byBook[bookIds[j]];
@@ -695,6 +698,9 @@ async function rebuildPersistedIndexes() {
                 chapters: chapters
             });
             usersToIndex[book.userId] = userDir;
+            userDocPathsToRefresh[book.userId] = (userDocPathsToRefresh[book.userId] || []).concat(
+                docs.map(function(doc) { return doc.docPath; })
+            );
             console.log("[IndexRecovery] Rehydrated " + docs.length + " docs for " + book.filename);
         }
 
@@ -710,7 +716,8 @@ async function rebuildPersistedIndexes() {
             console.log("[IndexRecovery] Indexed local/" + userId + ": " + rawText);
             var semanticResult = await refreshUserSemanticIndex(userId, {
                 env: process.env,
-                booksDir: BOOKS_DIR
+                booksDir: BOOKS_DIR,
+                docPaths: Array.from(new Set(userDocPathsToRefresh[userId] || []))
             });
             console.log(
                 "[IndexRecovery] Re-embedded local/" +

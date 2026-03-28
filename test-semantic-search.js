@@ -198,7 +198,8 @@ test("refreshUserSemanticIndex checkpoints partial progress before failing on qu
         env: {
           DOC_INDEX_PATH: path.join(root, "doc-index"),
           GEMINI_EMBEDDING_MODEL: "models/gemini-embedding-001",
-          JDOCMUNCH_EMBED_CHECKPOINT_EVERY: "1"
+          JDOCMUNCH_EMBED_CHECKPOINT_EVERY: "1",
+          JDOCMUNCH_EMBED_DOCUMENT_BATCH_SIZE: "1"
         },
         booksDir: path.join(root, "books")
       }),
@@ -213,6 +214,70 @@ test("refreshUserSemanticIndex checkpoints partial progress before failing on qu
     assert.equal(saved.sections[0].embedding_model, "models/gemini-embedding-001");
     assert.equal(saved.embedding_progress.target_model, "models/gemini-embedding-001");
     assert.equal(saved.embedding_progress.embedded_sections, 1);
+  } finally {
+    restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("refreshUserSemanticIndex scopes document embeddings to requested doc paths and batches requests", async function() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jdocmunch-semantic-"));
+  let geminiCalls = 0;
+
+  writeUserIndex(root, "reader", {
+    sections: [
+      {
+        id: "sec-target-1",
+        doc_path: "target-a.md",
+        title: "Capitulo 1",
+        content: "Primer tramo"
+      },
+      {
+        id: "sec-target-2",
+        doc_path: "target-b.md",
+        title: "Capitulo 2",
+        content: "Segundo tramo"
+      },
+      {
+        id: "sec-other",
+        doc_path: "other-book.md",
+        title: "Capitulo ajeno",
+        content: "No deberia embeberse"
+      }
+    ]
+  });
+
+  const { semanticSearch, restore } = loadSemanticSearchWithStubs({
+    callGemini: async function() {
+      geminiCalls += 1;
+      return [
+        [0.1, 0.9],
+        [0.2, 0.8]
+      ];
+    }
+  });
+
+  try {
+    const result = await semanticSearch.refreshUserSemanticIndex("reader", {
+      env: {
+        DOC_INDEX_PATH: path.join(root, "doc-index"),
+        GEMINI_EMBEDDING_MODEL: "models/gemini-embedding-001",
+        JDOCMUNCH_EMBED_DOCUMENT_BATCH_SIZE: "8"
+      },
+      booksDir: path.join(root, "books"),
+      docPaths: ["target-a.md", "target-b.md"]
+    });
+
+    const saved = JSON.parse(
+      fs.readFileSync(path.join(root, "doc-index", "local", "reader.json"), "utf8")
+    );
+
+    assert.equal(geminiCalls, 1);
+    assert.equal(result.sections, 2);
+    assert.equal(result.embedded_sections, 2);
+    assert.deepEqual(saved.sections[0].embedding, [0.1, 0.9]);
+    assert.deepEqual(saved.sections[1].embedding, [0.2, 0.8]);
+    assert.equal(saved.sections[2].embedding, undefined);
   } finally {
     restore();
     fs.rmSync(root, { recursive: true, force: true });
