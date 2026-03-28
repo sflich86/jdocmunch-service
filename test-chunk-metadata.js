@@ -143,10 +143,53 @@ function testBuildStructuredMarkdownFromChapters() {
   assert.ok(structured.indexOf("# 1. El dialogo interno") < structured.indexOf("# 2. La responsabilidad sin culpa"));
 }
 
+function testBuildChapterRangesFallsBackToChapterHeadingsWhenStartsWithDrifts() {
+  const content = [
+    "# The Score",
+    "",
+    "Contents",
+    "",
+    "## 1. Is This the Game You Really Want to Be Playing?",
+    "## 2. Striving Play",
+    "",
+    "## CHAPTER 1",
+    "Is This the Game You Really Want to Be Playing?",
+    "Actual body of chapter one.",
+    "",
+    "## CHAPTER 2",
+    "Striving Play",
+    "Actual body of chapter two."
+  ].join("\n");
+
+  const ranges = buildChapterRanges(content, [
+    {
+      chapter_num: 1,
+      title: "Is This the Game You Really Want to Be Playing?",
+      starts_with: "Rock climbing saved me."
+    },
+    {
+      chapter_num: 2,
+      title: "Striving Play",
+      starts_with: "The fun part is failing."
+    }
+  ]);
+
+  assert.strictEqual(ranges.length, 2);
+  assert.strictEqual(
+    Buffer.from(content, "utf8").subarray(ranges[0].byte_start, ranges[0].byte_start + 12).toString("utf8"),
+    "## CHAPTER 1"
+  );
+  assert.strictEqual(
+    Buffer.from(content, "utf8").subarray(ranges[1].byte_start, ranges[1].byte_start + 12).toString("utf8"),
+    "## CHAPTER 2"
+  );
+}
+
 function run() {
   testBuildChapterRangesFromBookStructure();
   testEnrichChunksWithBookAndChapterMetadata();
   testBuildStructuredMarkdownFromChapters();
+  testBuildChapterRangesFallsBackToChapterHeadingsWhenStartsWithDrifts();
   console.log("test-chunk-metadata.js: ok");
 }
 
