@@ -17,18 +17,18 @@ var { callGemini } = require("./lib/geminiCaller");
 var { getClient, callTool } = require("./lib/mcpClient");
 var { pipelineQueue } = require("./lib/pipelineQueue");
 var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./lib/searchRuntime");
-var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel } = require("./lib/semanticSearch");
+var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel, getEmbeddingProvider } = require("./lib/semanticSearch");
 var { buildChapterRanges, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
 var { getChaptersForDocPath, listIndexDocPathsForBook, materializeIndexableDocuments } = require("./lib/indexableDocs");
 var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
 var { buildConceptHintPack, rerankChunksWithConceptHints } = require("./lib/conceptHintReranker");
 
-// —— Constants ————————————————————————————————————————————————
+// —— Constants ———————————————————————————————————
 var VERSION = "1.0.45-context-core-v2";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
-// —— Express App ————————————————————————————————————————————
+// —— Express App —————————————————————————————————
 var app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: "50mb" }));
@@ -198,6 +198,7 @@ app.get("/api/jdocmunch/health", function(req, res) {
         status: "ok", 
         version: VERSION, 
         mcpConnected: true,
+        embeddingProvider: getEmbeddingProvider(process.env),
         embeddingModel: getEmbeddingModel(process.env),
         tiers: keyManager.getStatus()
     });

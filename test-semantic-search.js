@@ -34,9 +34,11 @@ function loadSemanticSearchWithStubs(stubs) {
   const semanticPath = require.resolve("./lib/semanticSearch");
   const geminiCallerPath = require.resolve("./lib/geminiCaller");
   const dbPath = require.resolve("./lib/db");
+  const axiosPath = require.resolve("axios");
   const originalSemantic = require.cache[semanticPath];
   const originalGeminiCaller = require.cache[geminiCallerPath];
   const originalDb = require.cache[dbPath];
+  const originalAxios = require.cache[axiosPath];
 
   delete require.cache[semanticPath];
   require.cache[geminiCallerPath] = {
@@ -59,6 +61,16 @@ function loadSemanticSearchWithStubs(stubs) {
       }
     }
   };
+  require.cache[axiosPath] = {
+    id: axiosPath,
+    filename: axiosPath,
+    loaded: true,
+    exports: stubs.axios || {
+      post: async function() {
+        throw new Error("axios.post stub not provided");
+      }
+    }
+  };
 
   const semanticSearch = require("./lib/semanticSearch");
   return {
@@ -77,6 +89,11 @@ function loadSemanticSearchWithStubs(stubs) {
         require.cache[dbPath] = originalDb;
       } else {
         delete require.cache[dbPath];
+      }
+      if (originalAxios) {
+        require.cache[axiosPath] = originalAxios;
+      } else {
+        delete require.cache[axiosPath];
       }
     }
   };
@@ -309,5 +326,82 @@ test("buildSectionEmbedText trims long content to the configured char budget", f
     assert.equal(text.split("\n").pop().length, 1200);
   } finally {
     restore();
+  }
+});
+
+test("refreshUserSemanticIndex uses OpenAI embeddings when provider is openai", async function() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jdocmunch-semantic-"));
+  let geminiCalls = 0;
+  let axiosCalls = 0;
+
+  writeUserIndex(root, "reader", {
+    sections: [
+      {
+        id: "sec-1",
+        doc_path: "target-a.md",
+        title: "Capitulo 1",
+        content: "Primer tramo"
+      },
+      {
+        id: "sec-2",
+        doc_path: "target-a.md",
+        title: "Capitulo 2",
+        content: "Segundo tramo"
+      }
+    ]
+  });
+
+  const { semanticSearch, restore } = loadSemanticSearchWithStubs({
+    callGemini: async function() {
+      geminiCalls += 1;
+      return [1, 0];
+    },
+    axios: {
+      post: async function(url, payload, options) {
+        axiosCalls += 1;
+        assert.equal(url, "https://api.openai.com/v1/embeddings");
+        assert.equal(payload.model, "text-embedding-3-small");
+        assert.deepEqual(payload.input, ["Capitulo 1\nPrimer tramo", "Capitulo 2\nSegundo tramo"]);
+        assert.match(options.headers.Authorization, /^Bearer /);
+        return {
+          data: {
+            data: [
+              { embedding: [0.1, 0.9] },
+              { embedding: [0.2, 0.8] }
+            ]
+          }
+        };
+      }
+    }
+  });
+
+  try {
+    const result = await semanticSearch.refreshUserSemanticIndex("reader", {
+      env: {
+        DOC_INDEX_PATH: path.join(root, "doc-index"),
+        JDOCMUNCH_EMBEDDING_PROVIDER: "openai",
+        OPENAI_API_KEY: "test-openai-key",
+        OPENAI_EMBEDDING_MODEL: "text-embedding-3-small",
+        JDOCMUNCH_EMBED_TEXT_CHAR_LIMIT: "1200"
+      },
+      booksDir: path.join(root, "books"),
+      docPaths: ["target-a.md"]
+    });
+
+    const saved = JSON.parse(
+      fs.readFileSync(path.join(root, "doc-index", "local", "reader.json"), "utf8")
+    );
+
+    assert.equal(geminiCalls, 0);
+    assert.equal(axiosCalls, 1);
+    assert.equal(result.embedding_model, "text-embedding-3-small");
+    assert.ok(Math.abs(saved.sections[0].embedding[0] - 0.11043152607484655) < 1e-12);
+    assert.ok(Math.abs(saved.sections[0].embedding[1] - 0.9938837346736189) < 1e-12);
+    assert.ok(Math.abs(saved.sections[1].embedding[0] - 0.24253562503633294) < 1e-12);
+    assert.ok(Math.abs(saved.sections[1].embedding[1] - 0.9701425001453318) < 1e-12);
+    assert.equal(saved.embedding_model, "text-embedding-3-small");
+  } finally {
+    restore();
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
