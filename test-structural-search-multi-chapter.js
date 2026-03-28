@@ -34,3 +34,17 @@ test("returns one structural hit per requested chapter when the query asks for m
     ]
   );
 });
+
+test("deduplicates structural matches when a split book contributes multiple metadata entries", () => {
+  const metadataMap = buildMetadataMap();
+  metadataMap["book-score__jdm_ch024__s01.md"] = metadataMap["the-score.pdf"];
+  metadataMap["book-score__jdm_ch025__s01.md"] = metadataMap["the-score.pdf"];
+
+  const results = searchStructuralChapterMetadata(
+    "cuales son los titulos de los capitulos 24 y 25 de The Score",
+    metadataMap,
+    { bookIds: ["book-score"] }
+  );
+
+  assert.equal(results.length, 2);
+});

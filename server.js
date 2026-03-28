@@ -18,16 +18,17 @@ var { getClient, callTool } = require("./lib/mcpClient");
 var { pipelineQueue } = require("./lib/pipelineQueue");
 var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./lib/searchRuntime");
 var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel } = require("./lib/semanticSearch");
-var { buildChapterRanges, buildStructuredMarkdownFromChapters, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
+var { buildChapterRanges, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
+var { getChaptersForDocPath, listIndexDocPathsForBook, materializeIndexableDocuments } = require("./lib/indexableDocs");
 var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
 var { buildConceptHintPack, rerankChunksWithConceptHints } = require("./lib/conceptHintReranker");
 
-// —— Constants ———————————————————————————————————
+// —— Constants —————————————————————————————————————————————————————————————————————
 var VERSION = "1.0.45-context-core-v2";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
-// —— Express App —————————————————————————————————
+// —— Express App ————————————————————————————————————————————————————————————————
 var app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: "50mb" }));
@@ -59,9 +60,9 @@ app.use(function(req, res, next) {
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  UTILITIES
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 function getUserBooksDir(userId) {
     var id = userId || "default";
@@ -107,9 +108,10 @@ async function resolveAllowedDocPaths(userId, bookIds) {
         args: args
     });
 
-    return result.rows.map(function(row) {
-        return getIndexedFilename(row.filename, row.id);
-    });
+    var userDir = getUserBooksDir(userId);
+    return Array.from(new Set(result.rows.flatMap(function(row) {
+        return listIndexDocPathsForBook(userDir, row.filename, row.id);
+    })));
 }
 
 async function getBookMetadataMap(userId, bookIds) {
@@ -128,16 +130,10 @@ async function getBookMetadataMap(userId, bookIds) {
 
     var result = await db.execute({ sql: sql, args: args });
     var map = {};
+    var userDir = getUserBooksDir(userId);
     for (var i = 0; i < result.rows.length; i++) {
         var row = result.rows[i];
-        var docPath = getIndexedFilename(row.filename, row.id);
-        var filePath = path.join(getUserBooksDir(userId), docPath);
-        var content = "";
         var chapters = [];
-
-        if (fs.existsSync(filePath)) {
-            content = fs.readFileSync(filePath, "utf8");
-        }
 
         try {
             chapters = JSON.parse(row.chapters || "[]");
@@ -152,24 +148,50 @@ async function getBookMetadataMap(userId, bookIds) {
             structureHealth = null;
         }
 
-        map[docPath] = {
-            book_id: String(row.id),
-            book_title: row.title || row.filename || row.id,
-            author: row.author || "",
-            source_file: docPath,
-            chapters: chapters,
-            chapter_ranges: buildChapterRanges(content, chapters),
-            contextCore: row.context_core_json || null,
-            structure_version: row.structure_version || null,
-            structure_health: structureHealth
-        };
+        var sourceFile = getIndexedFilename(row.filename, row.id);
+        var docPaths = listIndexDocPathsForBook(userDir, row.filename, row.id);
+
+        for (var j = 0; j < docPaths.length; j++) {
+            var docPath = docPaths[j];
+            var filePath = path.join(userDir, docPath);
+            var content = "";
+            var scopedChapters = getChaptersForDocPath(docPath, chapters);
+            var chapterRanges = [];
+
+            if (fs.existsSync(filePath)) {
+                content = fs.readFileSync(filePath, "utf8");
+            }
+
+            chapterRanges = buildChapterRanges(content, scopedChapters);
+            if (!chapterRanges.length && scopedChapters.length === 1 && content) {
+                chapterRanges = [{
+                    chapter_num: Number(scopedChapters[0].chapter_num || 0),
+                    chapter_title: scopedChapters[0].title || "",
+                    starts_with: scopedChapters[0].starts_with || "",
+                    byte_start: 0,
+                    byte_end: Buffer.byteLength(content, "utf8")
+                }];
+            }
+
+            map[docPath] = {
+                book_id: String(row.id),
+                book_title: row.title || row.filename || row.id,
+                author: row.author || "",
+                source_file: sourceFile,
+                chapters: scopedChapters,
+                chapter_ranges: chapterRanges,
+                contextCore: row.context_core_json || null,
+                structure_version: row.structure_version || null,
+                structure_health: structureHealth
+            };
+        }
     }
     return map;
 }
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  ROUTES
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 app.get("/api/jdocmunch/health", function(req, res) {
     res.json({ 
@@ -330,10 +352,10 @@ app.get("/books/:id", async function(req, res) {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  DELETE A BOOK
 //  — v1.0.41 FIX: Safe req.body and req.query checks
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async function(req, res) {
     var bookId = null;
     var body = req.body || {};
@@ -415,10 +437,10 @@ app.delete(/^\/books\/(.+)$/, function(req, res) {
     app.handle(req, res);
 });
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  ENRICHMENT STATUS
 //  — v1.0.41: Advanced fallback to prevent stuck "Pending"
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
     var rawId = req.params[0];
     var bookId = decodeShieldedId(rawId);
@@ -521,9 +543,9 @@ app.post("/api/jdocmunch/search", async function(req, res) {
     }
 });
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  INGEST (Upload a Book)
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 app.post("/ingest", async function(req, res) {
     var body = req.body || {};
     var userId = body.user_id || req.query.user_id || "default";
@@ -594,9 +616,9 @@ app.post("/ingest", async function(req, res) {
     }
 });
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  GLOBAL ERROR HANDLER
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 app.use(function(err, req, res, next) {
     console.error("[Global Error]", err);
     res.status(500).json({ 
@@ -659,17 +681,21 @@ async function rebuildPersistedIndexes() {
         for (var j = 0; j < bookIds.length; j++) {
             var book = byBook[bookIds[j]];
             var userDir = getUserBooksDir(book.userId);
-            var filePath = path.join(userDir, book.filename);
             var chapters = [];
             try {
                 chapters = JSON.parse(book.chapters || "[]");
             } catch (_err) {
                 chapters = [];
             }
-            var structuredContent = buildStructuredMarkdownFromChapters(book.chunks.join(""), chapters);
-            fs.writeFileSync(filePath, structuredContent, "utf-8");
+            var docs = materializeIndexableDocuments({
+                userDir: userDir,
+                bookId: book.bookId,
+                filename: book.filename,
+                content: book.chunks.join(""),
+                chapters: chapters
+            });
             usersToIndex[book.userId] = userDir;
-            console.log("[IndexRecovery] Rehydrated " + filePath);
+            console.log("[IndexRecovery] Rehydrated " + docs.length + " docs for " + book.filename);
         }
 
         var userIds = Object.keys(usersToIndex);
