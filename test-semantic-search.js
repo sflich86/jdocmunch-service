@@ -283,3 +283,31 @@ test("refreshUserSemanticIndex scopes document embeddings to requested doc paths
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("buildSectionEmbedText trims long content to the configured char budget", function() {
+  const { semanticSearch, restore } = loadSemanticSearchWithStubs({
+    callGemini: async function() {
+      return [1, 0];
+    }
+  });
+
+  try {
+    const text = semanticSearch.buildSectionEmbedText(
+      {
+        title: "Capitulo 1",
+        summary: "Resumen breve",
+        content: "x".repeat(5000)
+      },
+      "reader",
+      "",
+      {
+        JDOCMUNCH_EMBED_TEXT_CHAR_LIMIT: "1200"
+      }
+    );
+
+    assert.ok(text.startsWith("Capitulo 1\nResumen breve\n"));
+    assert.equal(text.split("\n").pop().length, 1200);
+  } finally {
+    restore();
+  }
+});

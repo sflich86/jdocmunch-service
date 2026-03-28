@@ -47,12 +47,11 @@ test("embedding tier loads fallback keys from additional env vars and rotates af
       const firstKey = await keyManager.getKey("embedding");
       assert.equal(firstKey, "primary-embed-key");
 
-      keyManager.handleRateLimit("embedding", "0");
-      const embeddingTier = keyManager.tiers.get("embedding");
-      embeddingTier.pausedUntil = 0;
+      keyManager.handleRateLimit("embedding", "60s", { scope: "window" });
 
       const secondKey = await keyManager.getKey("embedding");
       assert.equal(secondKey, "fallback-embed-key");
+      assert.equal(keyManager.getStatus().embedding.pausedKeys, 1);
     }
   );
 });
