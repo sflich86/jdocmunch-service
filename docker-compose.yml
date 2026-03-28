@@ -11,6 +11,13 @@ services:
       NODE_ENV: production
       JDOCMUNCH_EMBEDDING_PROVIDER: gemini
       GEMINI_EMBEDDING_MODEL: models/gemini-embedding-2-preview
+      GEMINI_EMBED_KEY_1: ${GEMINI_EMBED_KEY_1:-}
+      GEMINI_EMBED_KEY_2: ${GEMINI_EMBED_KEY_2:-}
+      GEMINI_EMBED_FALLBACK_KEY: ${GEMINI_EMBED_FALLBACK_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEY_FALLBACK: ${GEMINI_API_KEY_FALLBACK:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_API_KEY_FALLBACK: ${GOOGLE_API_KEY_FALLBACK:-}
       DOC_INDEX_PATH: /root/.local/share/jdocmunch/doc-index
     deploy:
       mode: replicated
