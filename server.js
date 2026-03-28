@@ -23,12 +23,12 @@ var { getChaptersForDocPath, listIndexDocPathsForBook, materializeIndexableDocum
 var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
 var { buildConceptHintPack, rerankChunksWithConceptHints } = require("./lib/conceptHintReranker");
 
-// —— Constants —————————————————————————————————————————————————————————————————————
+// —— Constants ———————————————————————————————————
 var VERSION = "1.0.45-context-core-v2";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
-// —— Express App ————————————————————————————————————————————————————————————————
+// —— Express App —————————————————————————————————
 var app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: "50mb" }));
@@ -60,9 +60,9 @@ app.use(function(req, res, next) {
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  UTILITIES
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 
 function getUserBooksDir(userId) {
     var id = userId || "default";
@@ -189,9 +189,9 @@ async function getBookMetadataMap(userId, bookIds) {
     return map;
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  ROUTES
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 
 app.get("/api/jdocmunch/health", function(req, res) {
     res.json({ 
@@ -352,10 +352,10 @@ app.get("/books/:id", async function(req, res) {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  DELETE A BOOK
 //  — v1.0.41 FIX: Safe req.body and req.query checks
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 app.delete(/^\/api\/jdocmunch\/books\/(.+)$/, async function(req, res) {
     var bookId = null;
     var body = req.body || {};
@@ -437,10 +437,10 @@ app.delete(/^\/books\/(.+)$/, function(req, res) {
     app.handle(req, res);
 });
 
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  ENRICHMENT STATUS
 //  — v1.0.41: Advanced fallback to prevent stuck "Pending"
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 app.get(/^\/enrichment-status\/(.+)$/, async function(req, res) {
     var rawId = req.params[0];
     var bookId = decodeShieldedId(rawId);
@@ -543,9 +543,9 @@ app.post("/api/jdocmunch/search", async function(req, res) {
     }
 });
 
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  INGEST (Upload a Book)
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 app.post("/ingest", async function(req, res) {
     var body = req.body || {};
     var userId = body.user_id || req.query.user_id || "default";
@@ -616,9 +616,9 @@ app.post("/ingest", async function(req, res) {
     }
 });
 
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  GLOBAL ERROR HANDLER
-// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 app.use(function(err, req, res, next) {
     console.error("[Global Error]", err);
     res.status(500).json({ 
@@ -703,7 +703,7 @@ async function rebuildPersistedIndexes() {
             var userId = userIds[k];
             var indexResult = await callTool("index_local", {
                 path: usersToIndex[userId],
-                use_embeddings: true,
+                use_embeddings: false,
                 incremental: false
             });
             var rawText = (indexResult && indexResult.content && indexResult.content[0] && indexResult.content[0].text) || "{}";
@@ -712,7 +712,21 @@ async function rebuildPersistedIndexes() {
                 env: process.env,
                 booksDir: BOOKS_DIR
             });
-            console.log("[IndexRecovery] Re-embedded local/" + userId + " with " + semanticResult.embedding_model + " (" + semanticResult.sections + " sections)");
+            console.log(
+                "[IndexRecovery] Re-embedded local/" +
+                userId +
+                " with " +
+                semanticResult.embedding_model +
+                " (" +
+                semanticResult.sections +
+                " sections; " +
+                semanticResult.embedded_sections +
+                " nuevas; " +
+                semanticResult.reused_sections +
+                " reutilizadas; " +
+                semanticResult.skipped_sections +
+                " omitidas)"
+            );
         }
     } catch (err) {
         console.error("[IndexRecovery] Error:", err.message);

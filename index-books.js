@@ -38,7 +38,7 @@ async function main() {
         arguments: { 
             path: bookPath,
             use_ai_summaries: false,
-            use_embeddings: true
+            use_embeddings: false
         }
     });
 
