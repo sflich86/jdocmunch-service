@@ -124,7 +124,7 @@ async function getBookMetadataMap(userId, bookIds) {
 
     if (ids.length > 0) {
         var placeholders = ids.map(function() { return "?"; }).join(", ");
-        sql += " AND id IN (" + placeholders + ")";
+        sql += " AND b.id IN (" + placeholders + ")";
         args = args.concat(ids);
     }
 
