@@ -55,4 +55,8 @@ test("buildHeuristicBookConceptStructure derives chapter cards, section cards, m
   );
   assert.ok(Array.isArray(structure.depthProbes) && structure.depthProbes.length >= 1);
   assert.match(structure.sectionCards[0].sectionTitle, /Metrica y agencia/i);
+  assert.equal(structure.chapterCards.length, 2);
+  assert.ok(Array.isArray(structure.topicIndex) && structure.topicIndex.length >= 3);
+  assert.ok(Array.isArray(structure.differenceCards) && structure.differenceCards.length >= 1);
+  assert.match(structure.differenceCards[0].label, /metrica|score|captura/i);
 });
