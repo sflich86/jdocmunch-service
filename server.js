@@ -30,7 +30,7 @@ var BOOKS_DIR = path.join(__dirname, "books");
 var app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: "50mb" }));
-app.use(bodyParser.text({ type: "text/*", limit: "50mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
 var traceLogs = [];
 app.use(function(req, res, next) {
