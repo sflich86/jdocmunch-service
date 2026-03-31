@@ -1,7 +1,9 @@
+version: "3.8"
+
 services:
   jdocmunch:
-    build: .
     image: ghcr.io/sflich86/jdocmunch-service:latest
+    container_name: jdocmunch
     volumes:
       - jdocmunch_data:/root/.local/share/jdocmunch
       - jdocmunch_books:/app/books
@@ -35,14 +37,13 @@ services:
           - node.role == manager
       resources:
         limits:
-          cpus: '0.50'
-          memory: 1G
+          cpus: '0.5'
+          memory: 512M
       labels:
         - traefik.enable=true
         - traefik.http.routers.jdocmunch.rule=Host(`ssjdocmunchss.odontolab.co`)
         - traefik.http.routers.jdocmunch.entrypoints=websecure
         - traefik.http.routers.jdocmunch.tls.certresolver=le
-        - traefik.http.routers.jdocmunch.tls=true
         - traefik.http.services.jdocmunch.loadbalancer.server.port=3000
         - traefik.docker.network=traefik_public
     networks:
@@ -56,5 +57,7 @@ networks:
     external: true
 
 volumes:
-  jdocmunch_data: {}
-  jdocmunch_books: {}
+  jdocmunch_data:
+    external: true
+  jdocmunch_books:
+    external: true
