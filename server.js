@@ -9,7 +9,7 @@ var crypto = require("crypto");
 var bodyParser = require("body-parser");
 var { keyManager } = require("./lib/keyManager");
 var { startPipeline } = require("./lib/pipeline");
-var { db } = require("./lib/db");
+var { db, tryRestoreTursoConnection } = require("./lib/db");
 var { runMigrations } = require("./lib/migrations");
 var { callGemini } = require("./lib/geminiCaller");
 var { getClient, callTool } = require("./lib/mcpClient");
@@ -226,6 +226,19 @@ app.get("/api/jdocmunch/health", function(req, res) {
         embeddingModel: getEmbeddingModel(process.env),
         tiers: keyManager.getStatus()
     });
+});
+
+app.post("/api/jdocmunch/restore-turso", async function(req, res) {
+    try {
+        const restored = await tryRestoreTursoConnection();
+        res.json({ 
+            success: restored,
+            dbSource: db.source || "unknown",
+            message: restored ? "Turso connection restored" : "Failed to restore Turso connection"
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message, dbSource: db.source || "unknown" });
+    }
 });
 
 app.get("/api/jdocmunch/status", function(req, res) {
