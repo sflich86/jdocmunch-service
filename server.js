@@ -60,6 +60,31 @@ app.use(function(req, res, next) {
 
 app.use(express.static(path.join(__dirname, "public")));
 
+async function checkConnectivity() {
+    console.log("[Connectivity] Checking DNS and Outbound connections...");
+    const targets = [
+        { host: "aws-us-east-1.turso.io", port: 443 },
+        { host: "api.openai.com", port: 443 },
+        { host: "generativelanguage.googleapis.com", port: 443 }
+    ];
+    
+    for (const target of targets) {
+        try {
+            const start = Date.now();
+            await new Promise((resolve, reject) => {
+                const socket = require('net').createConnection(target.port, target.host);
+                socket.setTimeout(5000);
+                socket.on('connect', () => { socket.end(); resolve(); });
+                socket.on('error', reject);
+                socket.on('timeout', () => { socket.destroy(); reject(new Error("Timeout")); });
+            });
+            console.log(`[Connectivity] ${target.host} OK (${Date.now() - start}ms)`);
+        } catch (err) {
+            console.error(`[Connectivity] ${target.host} FAILED: ${err.message}`);
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════
 //  UTILITIES
 // ═══════════════════════════════════════════════════════════
@@ -765,6 +790,7 @@ async function rebuildPersistedIndexes() {
 
 async function initServer() {
     console.log("[Init] Starting VERSION " + VERSION + "...");
+    await checkConnectivity();
     try {
         try {
             await runMigrations(db);
