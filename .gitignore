@@ -1,3 +1,8 @@
 node_modules/
 .env
 response.json
+*.ps1
+docker-compose.override.yml
+debug_db.js
+db_debug_output.json
+*.tar.gz

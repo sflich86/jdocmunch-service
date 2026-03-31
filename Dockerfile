@@ -16,12 +16,12 @@ WORKDIR /app
 
 # Copiar configuración de Node.js e instalar
 COPY package*.json ./
-RUN npm install
+# Optimización: npm ci para consistencia y rebuild para bindings nativos de libsql
+RUN npm ci --ignore-scripts && npm rebuild @libsql/client
 
-# Crear carpeta local donde jdocmunch guarda los índices
-RUN mkdir -p /root/.local/share/jdocmunch
-RUN mkdir -p /root/.local/share/jdocmunch/doc-index
-RUN mkdir -p /app/books
+# Crear carpetas con permisos adecuados
+RUN mkdir -p /root/.local/share/jdocmunch/doc-index /app/books \
+    && chmod -R 777 /app/books /root/.local/share/jdocmunch
 
 # Copiar todo el código y los libros
 COPY . .
