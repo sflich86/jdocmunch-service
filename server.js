@@ -30,32 +30,23 @@ var BOOKS_DIR = path.join(__dirname, "books");
 var app = express();
 app.use(cors());
 
-// Raw body parser for POST endpoints - must come before express.json()
+// Diagnostic: log parsed body for POST requests AFTER body parsing
+var originalJson = express.json({ limit: "50mb" });
 app.use(function(req, res, next) {
-    if (req.method === 'POST' && req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
-        var chunks = [];
-        req.on('data', function(chunk) { chunks.push(chunk); });
-        req.on('end', function() {
-            var rawBody = Buffer.concat(chunks).toString('utf8');
-            try {
-                req.body = JSON.parse(rawBody);
-                console.log("[BodyParse] POST " + req.url + " - parsed OK, keys: " + Object.keys(req.body || {}).join(', '));
-            } catch (e) {
-                console.error("[BodyParse] POST " + req.url + " - parse FAILED. Raw length: " + rawBody.length + ", Raw: " + rawBody.substring(0, 200));
-                req.body = {};
+    if (req.method === 'POST') {
+        originalJson(req, res, function(err) {
+            if (err) {
+                console.error("[BodyParse] POST " + req.url + " - express.json FAILED: " + err.message);
+            } else if (req.body) {
+                console.log("[BodyParse] POST " + req.url + " - parsed OK, keys: " + Object.keys(req.body).join(', '));
             }
-            next();
-        });
-        req.on('error', function(err) {
-            console.error("[BodyParse] POST " + req.url + " - stream error: " + err.message);
-            next();
+            next(err);
         });
     } else {
         next();
     }
 });
 
-app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 var traceLogs = [];
