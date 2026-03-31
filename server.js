@@ -24,7 +24,7 @@ var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
 var { buildConceptHintPack, rerankChunksWithConceptHints } = require("./lib/conceptHintReranker");
 
 // —— Constants ———————————————————————————————————
-var VERSION = "1.0.45-context-core-v2";
+var VERSION = "1.0.46-resilient-db";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
@@ -198,6 +198,7 @@ app.get("/api/jdocmunch/health", function(req, res) {
         status: "ok", 
         version: VERSION, 
         mcpConnected: true,
+        dbSource: db.source || "unknown",
         embeddingProvider: getEmbeddingProvider(process.env),
         embeddingModel: getEmbeddingModel(process.env),
         tiers: keyManager.getStatus()
@@ -518,28 +519,49 @@ app.post("/api/jdocmunch/search", async function(req, res) {
     if (!q) return res.status(400).json({ error: "Missing query" });
 
     try {
-        var metadataMap = await getBookMetadataMap(user_id, book_ids);
-        var structuralChunks = searchStructuralChapterMetadata(q, metadataMap, { bookIds: book_ids });
-        if (structuralChunks.length > 0) {
-            return res.json(formatSearchResponse(q, structuralChunks));
+        var metadataMap = {};
+        var allowedDocPaths = [];
+        var dbAvailable = true;
+
+        try {
+            metadataMap = await getBookMetadataMap(user_id, book_ids);
+        } catch (dbErr) {
+            console.warn("[Search] DB metadata unavailable (" + dbErr.message + "), proceeding without enrichment");
+            dbAvailable = false;
         }
 
-        var allowedDocPaths = await resolveAllowedDocPaths(user_id, book_ids);
-        var conceptHintPack = buildConceptHintPack(q, metadataMap);
+        if (dbAvailable && Object.keys(metadataMap).length > 0) {
+            var structuralChunks = searchStructuralChapterMetadata(q, metadataMap, { bookIds: book_ids });
+            if (structuralChunks.length > 0) {
+                return res.json(formatSearchResponse(q, structuralChunks));
+            }
+            try {
+                allowedDocPaths = await resolveAllowedDocPaths(user_id, book_ids);
+            } catch (dbErr2) {
+                console.warn("[Search] resolveAllowedDocPaths failed: " + dbErr2.message);
+            }
+        }
+
         var rawChunks = await searchUserIndex(q, user_id, {
             env: process.env,
             booksDir: BOOKS_DIR,
             maxResults: 15,
-            docPaths: allowedDocPaths
+            docPaths: allowedDocPaths.length > 0 ? allowedDocPaths : undefined
         });
-        var chunks = rerankChunksWithConceptHints(
-            q,
-            enrichChunksWithMetadata(rawChunks, metadataMap),
-            conceptHintPack
-        );
-        var sRes = { chunks: chunks };
-        res.json(formatSearchResponse(q, sRes.chunks));
+
+        var chunks = rawChunks;
+        if (dbAvailable && Object.keys(metadataMap).length > 0) {
+            var conceptHintPack = buildConceptHintPack(q, metadataMap);
+            chunks = rerankChunksWithConceptHints(
+                q,
+                enrichChunksWithMetadata(rawChunks, metadataMap),
+                conceptHintPack
+            );
+        }
+
+        res.json(formatSearchResponse(q, chunks));
     } catch (err) {
+        console.error("[Search] Error: " + err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -744,11 +766,24 @@ async function rebuildPersistedIndexes() {
 async function initServer() {
     console.log("[Init] Starting VERSION " + VERSION + "...");
     try {
-        await runMigrations(db);
-        await rebuildPersistedIndexes();
-        await recoverPendingJobs();
+        try {
+            await runMigrations(db);
+        } catch (migErr) {
+            console.warn("[Init] DB migrations failed (non-fatal): " + migErr.message);
+        }
+        try {
+            await rebuildPersistedIndexes();
+        } catch (idxErr) {
+            console.warn("[Init] Index recovery failed (non-fatal): " + idxErr.message);
+        }
+        try {
+            await recoverPendingJobs();
+        } catch (jobErr) {
+            console.warn("[Init] Job recovery failed (non-fatal): " + jobErr.message);
+        }
         app.listen(PORT, function() {
             console.log("JDOCMUNCH listening on port " + PORT);
+            console.log("[Init] DB source: " + (db.source || "unknown"));
         });
     } catch (err) {
         console.error("Fatal:", err);
