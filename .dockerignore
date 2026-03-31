@@ -1,0 +1,6 @@
+jdocmunch-service/
+node_modules/
+*.db
+*.sqlite
+.git/
+.env.local
