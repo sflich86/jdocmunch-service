@@ -30,7 +30,7 @@ var BOOKS_DIR = path.join(__dirname, "books");
 var app = express();
 app.use(cors());
 
-// Manual JSON body parser - no body-parser dependency
+// Manual JSON body parser - lenient, falls back to query params
 app.use(function(req, res, next) {
     if (req.method === 'POST' && req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
         var chunks = [];
@@ -40,8 +40,8 @@ app.use(function(req, res, next) {
             try {
                 req.body = rawBody.length > 0 ? JSON.parse(rawBody) : {};
             } catch (e) {
-                console.error("[BodyParse] POST " + req.url + " - JSON parse FAILED. Length: " + rawBody.length + ", First 200 chars: " + rawBody.substring(0, 200));
-                return res.status(400).json({ error: "Invalid JSON body", detail: e.message });
+                console.warn("[BodyParse] POST " + req.url + " - JSON parse FAILED, falling back to query params. Length: " + rawBody.length);
+                req.body = {};
             }
             next();
         });
