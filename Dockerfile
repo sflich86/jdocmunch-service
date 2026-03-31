@@ -31,4 +31,7 @@ EXPOSE 3000
 ENV PORT=3000
 ENV NODE_ENV=production
 
-CMD ["node", "server.js"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:3000/api/jdocmunch/health || exit 1
+
+CMD ["node", "--max-old-space-size=1024", "server.js"]
