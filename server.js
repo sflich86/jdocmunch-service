@@ -30,17 +30,24 @@ var BOOKS_DIR = path.join(__dirname, "books");
 var app = express();
 app.use(cors());
 
-// Diagnostic: log parsed body for POST requests AFTER body parsing
-var originalJson = express.json({ limit: "50mb" });
+// Manual JSON body parser - no body-parser dependency
 app.use(function(req, res, next) {
-    if (req.method === 'POST') {
-        originalJson(req, res, function(err) {
-            if (err) {
-                console.error("[BodyParse] POST " + req.url + " - express.json FAILED: " + err.message);
-            } else if (req.body) {
-                console.log("[BodyParse] POST " + req.url + " - parsed OK, keys: " + Object.keys(req.body).join(', '));
+    if (req.method === 'POST' && req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
+        var chunks = [];
+        req.on('data', function(chunk) { chunks.push(chunk); });
+        req.on('end', function() {
+            var rawBody = Buffer.concat(chunks).toString('utf8');
+            try {
+                req.body = rawBody.length > 0 ? JSON.parse(rawBody) : {};
+            } catch (e) {
+                console.error("[BodyParse] POST " + req.url + " - JSON parse FAILED. Length: " + rawBody.length + ", First 200 chars: " + rawBody.substring(0, 200));
+                return res.status(400).json({ error: "Invalid JSON body", detail: e.message });
             }
-            next(err);
+            next();
+        });
+        req.on('error', function(err) {
+            console.error("[BodyParse] POST " + req.url + " - stream error: " + err.message);
+            next();
         });
     } else {
         next();
