@@ -1,9 +1,8 @@
-require("dotenv").config();
-const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
-const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
-const path = require("path");
-
 async function reproduce() {
+    // Dynamic imports for ESM-only MCP SDK in CJS context
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+
     const transport = new StdioClientTransport({
         command: "uvx",
         args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],

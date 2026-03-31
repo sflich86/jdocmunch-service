@@ -7,8 +7,6 @@ var path = require("path");
 var fs = require("fs");
 var crypto = require("crypto");
 var bodyParser = require("body-parser");
-var { GoogleGenerativeAI } = require("@google/generative-ai");
-
 var { keyManager } = require("./lib/keyManager");
 var { startPipeline } = require("./lib/pipeline");
 var { db } = require("./lib/db");
@@ -24,7 +22,7 @@ var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
 var { buildConceptHintPack, rerankChunksWithConceptHints } = require("./lib/conceptHintReranker");
 
 // —— Constants ———————————————————————————————————
-var VERSION = "1.0.46-resilient-db";
+var VERSION = "1.0.49";
 var PORT = process.env.PORT || 3000;
 var BOOKS_DIR = path.join(__dirname, "books");
 
@@ -526,6 +524,8 @@ app.get("/ask", async function(req, res) {
         var prompt = "Answer based only on the context.\nContext:\n" + contextText + "\n\nQuestion: " + q;
         
         var answer = await callGemini(async function(apiKey) {
+            const mod = await import("@google/generative-ai");
+            const GoogleGenerativeAI = mod.GoogleGenerativeAI;
             var gAI = new GoogleGenerativeAI(apiKey);
             var model = gAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
             var gResult = await model.generateContent(prompt);

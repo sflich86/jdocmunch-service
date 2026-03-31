@@ -1,14 +1,19 @@
-const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
-const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
-
 async function diagnostic() {
+    // Dynamic imports for ESM-only MCP SDK in CJS context
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+
     const transport = new StdioClientTransport({
         command: "uvx",
-        args: ["jdocmunch-mcp"],
+        args: ["--with", "jdocmunch-mcp[gemini]==1.3.0", "jdocmunch-mcp"],
+        env: {
+            ...process.env,
+            GEMINI_EMBEDDING_MODEL: 'gemini-embedding-001'
+        }
     });
 
     const client = new Client(
-        { name: "diagnostic", version: "1.0.0" },
+        { name: "reproduction", version: "1.0.0" },
         { capabilities: {} }
     );
 

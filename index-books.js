@@ -1,10 +1,8 @@
-#!/usr/bin/env node
-const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
-const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
-
-const bookPath = process.argv[2] || "/app/books";
-
 async function main() {
+    // Dynamic imports for ESM-only MCP SDK in CJS context
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+
     console.log(`📚 Indexing path: ${bookPath}`);
     
     const transport = new StdioClientTransport({
