@@ -29,31 +29,8 @@ var BOOKS_DIR = path.join(__dirname, "books");
 // —— Express App —————————————————————————————————
 var app = express();
 app.use(cors());
-
-// Diagnostic: log raw body for POST requests before body-parser
-app.use(function(req, res, next) {
-    if (req.method === 'POST') {
-        var chunks = [];
-        var originalOn = req.on.bind(req);
-        var originalEmit = req.emit.bind(req);
-        var bodyLogged = false;
-        
-        req.on('data', function(chunk) {
-            chunks.push(chunk);
-            if (!bodyLogged) {
-                bodyLogged = true;
-                console.log("[BodyDebug] POST " + req.url + " - raw chunk length: " + chunk.length);
-                try {
-                    console.log("[BodyDebug] POST " + req.url + " - raw content: " + chunk.toString('utf8').substring(0, 500));
-                } catch(e) {}
-            }
-        });
-    }
-    next();
-});
-
-app.use(bodyParser.json({ limit: "50mb" }));
-app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 var traceLogs = [];
 app.use(function(req, res, next) {
