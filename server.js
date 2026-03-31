@@ -628,6 +628,62 @@ app.post("/api/jdocmunch/search", async function(req, res) {
     }
 });
 
+// GET fallback for search (when POST body is corrupted by proxy)
+app.get("/api/jdocmunch/search", async function(req, res) {
+    var q = req.query.q;
+    var user_id = req.query.user_id || "default";
+    var book_ids = req.query.book_ids ? JSON.parse(req.query.book_ids) : [];
+
+    if (!q) return res.status(400).json({ error: "Missing query parameter 'q'" });
+
+    try {
+        var metadataMap = {};
+        var allowedDocPaths = [];
+        var dbAvailable = true;
+
+        try {
+            metadataMap = await getBookMetadataMap(user_id, book_ids);
+        } catch (dbErr) {
+            console.warn("[Search] DB metadata unavailable (" + dbErr.message + "), proceeding without enrichment");
+            dbAvailable = false;
+        }
+
+        if (dbAvailable && Object.keys(metadataMap).length > 0) {
+            var structuralChunks = searchStructuralChapterMetadata(q, metadataMap, { bookIds: book_ids });
+            if (structuralChunks.length > 0) {
+                return res.json(formatSearchResponse(q, structuralChunks));
+            }
+            try {
+                allowedDocPaths = await resolveAllowedDocPaths(user_id, book_ids);
+            } catch (dbErr2) {
+                console.warn("[Search] resolveAllowedDocPaths failed: " + dbErr2.message);
+            }
+        }
+
+        var rawChunks = await searchUserIndex(q, user_id, {
+            env: process.env,
+            booksDir: BOOKS_DIR,
+            maxResults: 15,
+            docPaths: allowedDocPaths.length > 0 ? allowedDocPaths : undefined
+        });
+
+        var chunks = rawChunks;
+        if (dbAvailable && Object.keys(metadataMap).length > 0) {
+            var conceptHintPack = buildConceptHintPack(q, metadataMap);
+            chunks = rerankChunksWithConceptHints(
+                q,
+                enrichChunksWithMetadata(rawChunks, metadataMap),
+                conceptHintPack
+            );
+        }
+
+        res.json(formatSearchResponse(q, chunks));
+    } catch (err) {
+        console.error("[Search] Error: " + err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ═══════════════════════════════════════════════════════════
 //  INGEST (Upload a Book)
 // ═══════════════════════════════════════════════════════════
