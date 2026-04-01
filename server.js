@@ -574,9 +574,10 @@ app.get("/ask", async function(req, res) {
 });
 
 app.post("/api/jdocmunch/search", async function(req, res) {
-    var q = req.body.query || req.query.q;
-    var user_id = req.body.user_id || req.query.user_id || "default";
-    var book_ids = req.body.book_ids || [];
+    var body = req.body || {};
+    var q = body.query || req.query.q;
+    var user_id = body.user_id || req.query.user_id || "default";
+    var book_ids = body.book_ids || [];
 
     if (!q) return res.status(400).json({ error: "Missing query" });
 
