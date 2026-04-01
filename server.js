@@ -94,9 +94,8 @@ app.use(function(req, res, next) {
 app.use(express.static(path.join(__dirname, "public")));
 
 async function checkConnectivity() {
-    console.log("[Connectivity] Checking DNS and Outbound connections...");
+    console.log("[Connectivity] Checking outbound connections...");
     const targets = [
-        { host: "aws-us-east-1.turso.io", port: 443 },
         { host: "api.openai.com", port: 443 },
         { host: "generativelanguage.googleapis.com", port: 443 }
     ];
