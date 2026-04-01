@@ -275,6 +275,28 @@ app.post("/api/jdocmunch/restore-turso", async function(req, res) {
     }
 });
 
+// Force book status to 'ready' when pipeline gets stuck
+app.post("/api/jdocmunch/force-ready", async function(req, res) {
+    try {
+        var body = req.body || {};
+        var bookId = body.book_id || req.query.book_id;
+        if (!bookId) return res.status(400).json({ error: "Missing book_id" });
+        
+        await db.execute({
+            sql: "UPDATE books SET index_status = 'ready' WHERE id = ?",
+            args: [String(bookId)]
+        });
+        await db.execute({
+            sql: "UPDATE enrichment_jobs SET status = 'COMPLETE', completed_at = CURRENT_TIMESTAMP, current_step = 'DONE' WHERE book_id = ?",
+            args: [String(bookId)]
+        });
+        
+        res.json({ success: true, message: "Book marked as ready", bookId: bookId });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get("/api/jdocmunch/status", function(req, res) {
     res.json(pipelineQueue.getStatus());
 });
