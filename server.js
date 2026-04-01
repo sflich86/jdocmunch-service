@@ -30,23 +30,34 @@ var BOOKS_DIR = path.join(__dirname, "books");
 var app = express();
 app.use(cors());
 
-// Manual JSON body parser - lenient, falls back to query params
+// Manual body parser for ALL POST requests - handles JSON, text, and form data
 app.use(function(req, res, next) {
-    if (req.method === 'POST' && req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
+    if (req.method === 'POST') {
         var chunks = [];
         req.on('data', function(chunk) { chunks.push(chunk); });
         req.on('end', function() {
             var rawBody = Buffer.concat(chunks).toString('utf8');
-            try {
-                req.body = rawBody.length > 0 ? JSON.parse(rawBody) : {};
-            } catch (e) {
-                console.warn("[BodyParse] POST " + req.url + " - JSON parse FAILED, falling back to query params. Length: " + rawBody.length);
+            var ct = req.headers['content-type'] || '';
+            if (ct.includes('application/json')) {
+                try {
+                    req.body = rawBody.length > 0 ? JSON.parse(rawBody) : {};
+                } catch (e) {
+                    req.body = { _raw: rawBody };
+                }
+            } else if (ct.includes('application/x-www-form-urlencoded')) {
                 req.body = {};
+                rawBody.split('&').forEach(function(pair) {
+                    var parts = pair.split('=');
+                    req.body[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1] || '');
+                });
+            } else {
+                req.body = rawBody;
             }
             next();
         });
         req.on('error', function(err) {
             console.error("[BodyParse] POST " + req.url + " - stream error: " + err.message);
+            req.body = req.body || {};
             next();
         });
     } else {
