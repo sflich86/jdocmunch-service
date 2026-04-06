@@ -20,6 +20,10 @@ var { buildChapterRanges, enrichChunksWithMetadata } = require("./lib/chunkMetad
 var { getChaptersForDocPath, listIndexDocPathsForBook, materializeIndexableDocuments } = require("./lib/indexableDocs");
 var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
 var { buildConceptHintPack, rerankChunksWithConceptHints } = require("./lib/conceptHintReranker");
+var {
+    loadCompiledBookKnowledge,
+    loadCompiledBookSetKnowledge
+} = require("./lib/compiledKnowledge");
 
 // —— Constants ———————————————————————————————————
 var VERSION = "1.0.49";
@@ -431,6 +435,41 @@ app.get("/api/jdocmunch/books", async function(req, res) {
             args: [String(userId)]
         });
         res.json({ books: result.rows, total: result.rows.length });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/jdocmunch/knowledge/books/:id", async function(req, res) {
+    try {
+        var userId = req.query.user_id || "default";
+        var record = await loadCompiledBookKnowledge(db, userId, req.params.id);
+        if (!record) return res.status(404).json({ error: "Book not found" });
+        res.json(record);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/jdocmunch/knowledge/book-set", async function(req, res) {
+    try {
+        var userId = req.query.user_id || "default";
+        var bookIds = String(req.query.book_ids || req.query.bookIds || "")
+            .split(",")
+            .map(function(entry) { return entry.trim(); })
+            .filter(Boolean);
+        var payload = await loadCompiledBookSetKnowledge(db, userId, bookIds);
+        res.json(payload);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/jdocmunch/knowledge/book-set", async function(req, res) {
+    try {
+        var body = req.body || {};
+        var userId = body.user_id || body.userId || "default";
+        var bookIds = Array.isArray(body.book_ids)
+            ? body.book_ids
+            : Array.isArray(body.bookIds)
+                ? body.bookIds
+                : [];
+        var payload = await loadCompiledBookSetKnowledge(db, userId, bookIds);
+        res.json(payload);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
