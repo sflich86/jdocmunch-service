@@ -405,3 +405,84 @@ test("refreshUserSemanticIndex uses OpenAI embeddings when provider is openai", 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("searchUserIndex boosts chunks that contain the queried scholarly author names", async function() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jdocmunch-semantic-"));
+  const booksRoot = path.join(root, "books", "reader");
+  fs.mkdirSync(booksRoot, { recursive: true });
+
+  const suitsPath = path.join(booksRoot, "score.md");
+  const scottPath = path.join(booksRoot, "state.md");
+  fs.writeFileSync(
+    suitsPath,
+    "Bernard Suits explains that games voluntarily take on unnecessary obstacles to make possible the activity of struggling to overcome them.",
+    "utf8"
+  );
+  fs.writeFileSync(
+    scottPath,
+    "James Scott describes state legibility as the drive to simplify the world for centralized control through standardized categories.",
+    "utf8"
+  );
+
+  writeUserIndex(root, "reader", {
+    sections: [
+      {
+        id: "sec-suits",
+        doc_path: "score.md",
+        title: "The Art of Agency",
+        summary: "Bernard Suits on games",
+        chapter_title: "The Art of Agency",
+        section_title: "Games",
+        book_title: "The Score",
+        author: "C. Thi Nguyen",
+        embedding: [1, 0],
+        byte_start: 0,
+        byte_end: fs.readFileSync(suitsPath, "utf8").length
+      },
+      {
+        id: "sec-scott",
+        doc_path: "state.md",
+        title: "Centralizing Values",
+        summary: "James Scott on legibility",
+        chapter_title: "Centralizing Values",
+        section_title: "State legibility",
+        book_title: "The Score",
+        author: "C. Thi Nguyen",
+        embedding: [0.98, 0.02],
+        byte_start: 0,
+        byte_end: fs.readFileSync(scottPath, "utf8").length
+      }
+    ]
+  });
+
+  const { semanticSearch, restore } = loadSemanticSearchWithStubs({
+    callGemini: async function() {
+      return [1, 0];
+    }
+  });
+
+  try {
+    const results = await semanticSearch.searchUserIndex(
+      "James Scott legibility versus Bernard Suits game motivation",
+      "reader",
+      {
+        env: {
+          DOC_INDEX_PATH: path.join(root, "doc-index")
+        },
+        booksDir: path.join(root, "books"),
+        maxResults: 2
+      }
+    );
+
+    assert.equal(results.length, 2);
+    const scottResult = results.find(function(entry) {
+      return entry.id === "sec-scott";
+    });
+    assert.ok(scottResult);
+    assert.match(scottResult.content, /James Scott/i);
+    assert.ok(Number(scottResult.score || 0) > 1);
+  } finally {
+    restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
