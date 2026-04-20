@@ -9,7 +9,8 @@ const {
   prioritizeSearchChunks,
   formatSearchResponse,
   extractSectionRecord,
-  readChunkFromRawFile
+  readChunkFromRawFile,
+  searchRawPhraseChunks
 } = require("./lib/searchRuntime");
 const {
   normalizeVector,
@@ -184,6 +185,37 @@ function testReadChunkFromRawFile() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+function testSearchRawPhraseChunksFindsScholarlyAuthorMentions() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jdocmunch-search-"));
+  const booksDir = path.join(root, "books");
+  const userBooksDir = path.join(booksDir, "reader");
+  const docName = "the-score.md";
+  const content = [
+    "# 20. Centralizing Values",
+    "",
+    "In Seeing Like a State, James Scott offers a sweeping vision of how centralization transforms our lives.",
+    "Bernard Suits appears elsewhere for games."
+  ].join("\n");
+
+  fs.mkdirSync(userBooksDir, { recursive: true });
+  fs.writeFileSync(path.join(userBooksDir, docName), content, "utf8");
+
+  const results = searchRawPhraseChunks(
+    "James Scott Bernard Suits game legibility state The Score",
+    {
+      userId: "reader",
+      booksDir: booksDir,
+      docPaths: [docName]
+    }
+  );
+
+  assert.ok(results.length >= 1);
+  assert.match(results[0].content, /James Scott/i);
+  assert.ok(Number(results[0].score || 0) > 1);
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 function testVectorHelpers() {
   const normalized = normalizeVector([3, 4]);
   assert.ok(Math.abs(normalized[0] - 0.6) < 0.0001);
@@ -198,6 +230,7 @@ function run() {
   testPrioritizeSearchChunksInfersChapterGroupingFromHeadingLikeNoise();
   testExtractSectionRecord();
   testReadChunkFromRawFile();
+  testSearchRawPhraseChunksFindsScholarlyAuthorMentions();
   testVectorHelpers();
   console.log("test-search-runtime.js: ok");
 }

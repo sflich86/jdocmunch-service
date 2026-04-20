@@ -14,7 +14,7 @@ var { runMigrations } = require("./lib/migrations");
 var { callGemini } = require("./lib/geminiCaller");
 var { getClient, callTool } = require("./lib/mcpClient");
 var { pipelineQueue } = require("./lib/pipelineQueue");
-var { getDocIndexPath, getIndexedFilename, formatSearchResponse } = require("./lib/searchRuntime");
+var { getDocIndexPath, getIndexedFilename, formatSearchResponse, searchRawPhraseChunks } = require("./lib/searchRuntime");
 var { refreshUserSemanticIndex, searchUserIndex, getEmbeddingModel, getEmbeddingProvider } = require("./lib/semanticSearch");
 var { buildChapterRanges, enrichChunksWithMetadata } = require("./lib/chunkMetadata");
 var { getChaptersForDocPath, listIndexDocPathsForBook, materializeIndexableDocuments } = require("./lib/indexableDocs");
@@ -693,6 +693,16 @@ app.post("/api/jdocmunch/search", async function(req, res) {
             );
         }
 
+        var rescueChunks = searchRawPhraseChunks(q, {
+            userId: user_id,
+            env: process.env,
+            booksDir: BOOKS_DIR,
+            docPaths: allowedDocPaths.length > 0 ? allowedDocPaths : undefined
+        });
+        if (rescueChunks.length > 0) {
+            chunks = chunks.concat(rescueChunks);
+        }
+
         res.json(formatSearchResponse(q, chunks));
     } catch (err) {
         console.error("[Search] Error: " + err.message);
@@ -747,6 +757,16 @@ app.get("/api/jdocmunch/search", async function(req, res) {
                 enrichChunksWithMetadata(rawChunks, metadataMap),
                 conceptHintPack
             );
+        }
+
+        var rescueChunks = searchRawPhraseChunks(q, {
+            userId: user_id,
+            env: process.env,
+            booksDir: BOOKS_DIR,
+            docPaths: allowedDocPaths.length > 0 ? allowedDocPaths : undefined
+        });
+        if (rescueChunks.length > 0) {
+            chunks = chunks.concat(rescueChunks);
         }
 
         res.json(formatSearchResponse(q, chunks));
