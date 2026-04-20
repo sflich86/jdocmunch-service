@@ -406,7 +406,7 @@ test("refreshUserSemanticIndex uses OpenAI embeddings when provider is openai", 
   }
 });
 
-test("searchUserIndex boosts chunks that contain the queried scholarly author names", async function() {
+test("searchUserIndex returns semantically relevant chunks without lexical-author boosting", async function() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jdocmunch-semantic-"));
   const booksRoot = path.join(root, "books", "reader");
   fs.mkdirSync(booksRoot, { recursive: true });
@@ -480,7 +480,7 @@ test("searchUserIndex boosts chunks that contain the queried scholarly author na
     });
     assert.ok(scottResult);
     assert.match(scottResult.content, /James Scott/i);
-    assert.ok(Number(scottResult.score || 0) > 1);
+    assert.ok(Number(scottResult.score || 0) > 0);
   } finally {
     restore();
     fs.rmSync(root, { recursive: true, force: true });
