@@ -991,6 +991,21 @@ async function rebuildPersistedIndexes() {
     }
 }
 
+async function runPostListenRecoveryTasks() {
+    console.log("[Init] Background recovery start...");
+    try {
+        await rebuildPersistedIndexes();
+    } catch (idxErr) {
+        console.warn("[Init] Index recovery failed (non-fatal): " + idxErr.message);
+    }
+    try {
+        await recoverPendingJobs();
+    } catch (jobErr) {
+        console.warn("[Init] Job recovery failed (non-fatal): " + jobErr.message);
+    }
+    console.log("[Init] Background recovery complete.");
+}
+
 async function initServer() {
     console.log("[Init] Starting VERSION " + VERSION + "...");
     await checkConnectivity();
@@ -1000,19 +1015,12 @@ async function initServer() {
         } catch (migErr) {
             console.warn("[Init] DB migrations failed (non-fatal): " + migErr.message);
         }
-        try {
-            await rebuildPersistedIndexes();
-        } catch (idxErr) {
-            console.warn("[Init] Index recovery failed (non-fatal): " + idxErr.message);
-        }
-        try {
-            await recoverPendingJobs();
-        } catch (jobErr) {
-            console.warn("[Init] Job recovery failed (non-fatal): " + jobErr.message);
-        }
         app.listen(PORT, function() {
             console.log("JDOCMUNCH listening on port " + PORT);
             console.log("[Init] DB source: " + (db.source || "unknown"));
+            runPostListenRecoveryTasks().catch(function(err) {
+                console.error("[Init] Background recovery fatal:", err);
+            });
         });
     } catch (err) {
         console.error("Fatal:", err);
