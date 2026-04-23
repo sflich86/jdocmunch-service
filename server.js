@@ -894,6 +894,10 @@ async function recoverPendingJobs() {
     } catch (err) { console.error("[JOBS] Error:", err.message); }
 }
 
+function shouldRunStartupSemanticRefresh() {
+    return String(process.env.JDOCMUNCH_STARTUP_SEMANTIC_REFRESH || "").trim() === "1";
+}
+
 async function rebuildPersistedIndexes() {
     console.log("[IndexRecovery] Checking persisted MCP index at " + getDocIndexPath(process.env));
 
@@ -965,6 +969,12 @@ async function rebuildPersistedIndexes() {
             });
             var rawText = (indexResult && indexResult.content && indexResult.content[0] && indexResult.content[0].text) || "{}";
             console.log("[IndexRecovery] Indexed local/" + userId + ": " + rawText);
+
+            if (!shouldRunStartupSemanticRefresh()) {
+                console.log("[IndexRecovery] Skipping startup semantic refresh for local/" + userId + " (set JDOCMUNCH_STARTUP_SEMANTIC_REFRESH=1 to enable).");
+                continue;
+            }
+
             var semanticResult = await refreshUserSemanticIndex(userId, {
                 env: process.env,
                 booksDir: BOOKS_DIR,
