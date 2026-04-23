@@ -21,6 +21,10 @@ var { getChaptersForDocPath, listIndexDocPathsForBook, materializeIndexableDocum
 var { searchStructuralChapterMetadata } = require("./lib/structuralSearch");
 var { buildConceptHintPack, rerankChunksWithConceptHints } = require("./lib/conceptHintReranker");
 var {
+    inferBookSourceLanguage,
+    normalizeSourceLanguage
+} = require("./lib/sourceLanguage");
+var {
     loadCompiledBookKnowledge,
     loadCompiledBookSetKnowledge
 } = require("./lib/compiledKnowledge");
@@ -426,7 +430,7 @@ app.get("/api/jdocmunch/books", async function(req, res) {
     try {
         var userId = req.query.user_id || "default";
         var result = await db.execute({
-            sql: "SELECT b.id, b.title, b.author, b.filename, b.pedagogical_compendium, b.context_core_json, b.index_status, b.created_at, " +
+            sql: "SELECT b.id, b.title, b.author, b.filename, b.source_language, b.pedagogical_compendium, b.context_core_json, b.index_status, b.created_at, " +
                  "d.central_thesis, d.argumentative_arc, d.key_concepts, s.chapters, s.structure_version, s.structure_health_json " +
                  "FROM books b " +
                  "LEFT JOIN book_dna d ON d.book_id = b.id " +
@@ -783,6 +787,7 @@ app.post("/ingest", async function(req, res) {
     var body = req.body || {};
     var userId = body.user_id || req.query.user_id || "default";
     var filename = body.filename || req.query.filename || "upload-" + Date.now() + ".md";
+    var sourceLanguage = body.source_language || body.sourceLanguage || req.query.source_language || req.query.sourceLanguage || null;
     var text = body.content || body.text || req.body;
 
     console.log("[Ingest] Request: " + filename + " (user: " + userId + ")");
@@ -797,19 +802,32 @@ app.post("/ingest", async function(req, res) {
 
     if (!safeText || safeText.length === 0) return res.status(400).json({ error: "Empty content" });
 
+    var normalizedSourceLanguage = normalizeSourceLanguage(sourceLanguage);
+    if (normalizedSourceLanguage === "unknown") {
+        normalizedSourceLanguage = inferBookSourceLanguage({
+            filename: safeFilename,
+            title: safeFilename.replace(/\.[^/.]+$/, ""),
+            contentSample: safeText
+        });
+    }
+    if (normalizedSourceLanguage === "unknown") {
+        normalizedSourceLanguage = null;
+    }
+
     var bookId = crypto.randomUUID();
     var jobId = crypto.randomUUID();
 
     try {
         // Step 1: Books
         await db.execute({
-            sql: "INSERT INTO books (id, user_id, title, author, filename, index_status) VALUES (?, ?, ?, ?, ?, ?)",
+            sql: "INSERT INTO books (id, user_id, title, author, filename, source_language, index_status) VALUES (?, ?, ?, ?, ?, ?, ?)",
             args: [
                 String(bookId), 
                 safeUserId, 
                 safeFilename.replace(/\.[^/.]+$/, ""), 
                 "Unknown", 
-                safeFilename, 
+                safeFilename,
+                normalizedSourceLanguage,
                 "pending"
             ]
         });
